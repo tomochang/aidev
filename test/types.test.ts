@@ -151,7 +151,7 @@ describe("RunContextSchema", () => {
     maxFixAttempts: 3,
     fixAttempts: 0,
     dryRun: false,
-    noMerge: false,
+    autoMerge: false,
   };
 
   it("accepts valid context", () => {
@@ -184,6 +184,12 @@ describe("RunContextSchema", () => {
     const { fixAttempts, ...rest } = validContext;
     const parsed = RunContextSchema.parse(rest);
     expect(parsed.fixAttempts).toBe(0);
+  });
+
+  it("defaults autoMerge to false", () => {
+    const { autoMerge, ...rest } = validContext;
+    const parsed = RunContextSchema.parse(rest);
+    expect(parsed.autoMerge).toBe(false);
   });
 
   it("rejects context without issueNumber", () => {

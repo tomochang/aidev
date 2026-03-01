@@ -18,7 +18,7 @@ function makeCtx(overrides: Partial<RunContext> = {}): RunContext {
     maxFixAttempts: 3,
     fixAttempts: 0,
     dryRun: false,
-    noMerge: false,
+    autoMerge: false,
     ...overrides,
   };
 }

@@ -60,7 +60,7 @@ export const RunContextSchema = z.object({
   maxFixAttempts: z.number().default(3),
   fixAttempts: z.number().default(0),
   dryRun: z.boolean(),
-  noMerge: z.boolean(),
+  autoMerge: z.boolean().default(false),
   plan: PlanSchema.optional(),
   result: ResultSchema.optional(),
   review: ReviewSchema.optional(),
