@@ -24,6 +24,7 @@ export interface GitHubAdapter {
   mergePr(number: number): Promise<void>;
   closeIssue(number: number): Promise<void>;
   listIssuesByLabel(label: string): Promise<Issue[]>;
+  getCheckRunLogs(branch: string): Promise<string>;
 }
 
 export function createGitHubAdapter(repo: string): GitHubAdapter {
@@ -115,6 +116,40 @@ export function createGitHubAdapter(repo: string): GitHubAdapter {
         "--repo",
         repo,
       ]);
+    },
+
+    async getCheckRunLogs(branch) {
+      const { stdout: listOut } = await execa("gh", [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--branch",
+        branch,
+        "--status",
+        "failure",
+        "--limit",
+        "1",
+        "--json",
+        "databaseId",
+      ]);
+      const runs: Array<{ databaseId: number }> = JSON.parse(listOut);
+      if (runs.length === 0) return "No failed CI runs found";
+
+      const { stdout: logOut } = await execa("gh", [
+        "run",
+        "view",
+        String(runs[0]!.databaseId),
+        "--repo",
+        repo,
+        "--log-failed",
+      ]);
+
+      const lines = logOut.split("\n");
+      if (lines.length > 200) {
+        return lines.slice(-200).join("\n");
+      }
+      return logOut;
     },
 
     async listIssuesByLabel(label) {

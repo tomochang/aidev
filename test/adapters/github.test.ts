@@ -166,6 +166,73 @@ describe("GitHubAdapter", () => {
     });
   });
 
+  describe("getCheckRunLogs", () => {
+    it("returns logs from the latest failed run", async () => {
+      // First call: gh run list → returns a failed run
+      mockExeca.mockResolvedValueOnce({
+        stdout: JSON.stringify([{ databaseId: 12345 }]),
+      } as any);
+      // Second call: gh run view --log-failed → returns log output
+      mockExeca.mockResolvedValueOnce({
+        stdout: "Error: test failed\n  at src/index.ts:10\n",
+      } as any);
+
+      const logs = await gh.getCheckRunLogs("feature/x");
+
+      expect(mockExeca).toHaveBeenCalledWith("gh", [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--branch",
+        "feature/x",
+        "--status",
+        "failure",
+        "--limit",
+        "1",
+        "--json",
+        "databaseId",
+      ]);
+      expect(mockExeca).toHaveBeenCalledWith("gh", [
+        "run",
+        "view",
+        "12345",
+        "--repo",
+        repo,
+        "--log-failed",
+      ]);
+      expect(logs).toBe("Error: test failed\n  at src/index.ts:10\n");
+    });
+
+    it("returns fallback message when no failed runs exist", async () => {
+      mockExeca.mockResolvedValueOnce({
+        stdout: JSON.stringify([]),
+      } as any);
+
+      const logs = await gh.getCheckRunLogs("feature/x");
+
+      expect(logs).toBe("No failed CI runs found");
+      expect(mockExeca).toHaveBeenCalledTimes(1);
+    });
+
+    it("truncates logs to the last 200 lines", async () => {
+      mockExeca.mockResolvedValueOnce({
+        stdout: JSON.stringify([{ databaseId: 99 }]),
+      } as any);
+      const longLog = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
+      mockExeca.mockResolvedValueOnce({
+        stdout: longLog,
+      } as any);
+
+      const logs = await gh.getCheckRunLogs("feature/x");
+
+      const lines = logs.split("\n");
+      expect(lines).toHaveLength(200);
+      expect(lines[0]).toBe("line 101");
+      expect(lines[199]).toBe("line 300");
+    });
+  });
+
   describe("listIssuesByLabel", () => {
     it("returns issues with label", async () => {
       mockExeca.mockResolvedValue({

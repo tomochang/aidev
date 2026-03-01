@@ -142,8 +142,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
 
   const fixing: StateHandler = async (ctx) => {
     if (!ctx.plan) throw new Error("No plan available");
-    // TODO: get actual CI logs via gh api
-    const ciLog = "CI failure - see logs for details";
+    const ciLog = await github.getCheckRunLogs(ctx.branch);
     const fixStart = performance.now();
     const fix = await runFixer(
       { plan: ctx.plan, ciLog, cwd: ctx.cwd },
