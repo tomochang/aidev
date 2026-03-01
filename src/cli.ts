@@ -89,7 +89,7 @@ export function createCli() {
     .option("--cwd <path>", "Working directory", process.cwd())
     .option("--max-fix-attempts <n>", "Max CI fix attempts", parseInt, 3)
     .option("--dry-run", "Skip push/PR/merge", false)
-    .option("--no-merge", "Skip merge after CI passes")
+    .option("--auto-merge", "Merge PR and close issue after CI passes", false)
     .option("--repo <owner/name>", "GitHub repo (owner/name)")
     .option("--claude-path <path>", "Path to native Claude Code executable")
     .option("--resume", "Resume the latest run for this issue")
@@ -115,7 +115,7 @@ export function createCli() {
         ctx = {
           ...saved,
           dryRun: opts.dryRun,
-          noMerge: !opts.merge,
+          autoMerge: opts.autoMerge,
         };
         // If previous run completed as done (dry-run), restart from creating_pr
         // (commit already exists, just need push + PR)
@@ -139,7 +139,7 @@ export function createCli() {
           maxFixAttempts: opts.maxFixAttempts,
           fixAttempts: 0,
           dryRun: opts.dryRun,
-          noMerge: !opts.merge,
+          autoMerge: opts.autoMerge,
         };
       }
 

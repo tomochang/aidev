@@ -120,7 +120,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       const status = await github.getCiStatus(ctx.branch);
       if (status === "passing") {
         logger.info("CI passed");
-        if (ctx.noMerge) return transition(ctx, "done");
+        if (!ctx.autoMerge) return transition(ctx, "done");
         return transition(ctx, "merging");
       }
       if (status === "failing") {
