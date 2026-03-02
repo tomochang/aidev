@@ -7,6 +7,7 @@ import { createGitHubAdapter } from "./adapters/github.js";
 import { createLogger } from "./util/logger.js";
 import { runWorkflow, type Persistence } from "./workflow/engine.js";
 import { createStateHandlers } from "./workflow/states.js";
+import { runDocumenter } from "./agents/documenter.js";
 import type { RunContext } from "./types.js";
 
 function createFilePersistence(baseDir: string): Persistence {
@@ -146,7 +147,7 @@ export function createCli() {
 
       const git = createGitAdapter();
       const github = createGitHubAdapter(ctx.repo);
-      const handlers = createStateHandlers({ git, github, logger });
+      const handlers = createStateHandlers({ git, github, logger, runDocumenter });
 
       logger.info("Starting devloop", { runId: ctx.runId, issue: opts.issue, repo: ctx.repo });
 
@@ -182,7 +183,7 @@ export function createCli() {
       const git = createGitAdapter();
       const github = createGitHubAdapter(repo);
       const persistence = createFilePersistence(baseDir);
-      const handlers = createStateHandlers({ git, github, logger });
+      const handlers = createStateHandlers({ git, github, logger, runDocumenter });
 
       logger.info("Watching for issues", { label: opts.label, repo });
 
