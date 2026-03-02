@@ -54,6 +54,37 @@ node dist/index.js run --issue <number> --repo <owner/name> --cwd <path>
 - `--auto-merge` フラグを指定
 - Issue に `auto-merge` ラベルを付与
 
+#### Issue 本文でのワークフロー設定
+
+Issue 本文に ` ```aidev ` コードフェンスを記述することで、Issue ごとにワークフローパラメータを指定できる。
+
+````markdown
+```aidev
+maxFixAttempts: 5
+autoMerge: true
+base: release/1.3
+skip:
+  - reviewing
+  - documenter
+```
+````
+
+| パラメータ | 型 | 説明 |
+|-----------|---|------|
+| `maxFixAttempts` | number | CI 修正の最大試行回数 |
+| `autoMerge` | boolean | CI 通過後に自動マージ |
+| `dryRun` | boolean | push/PR/merge をスキップ |
+| `base` | string | ブランチ作成元 |
+| `skip` | string[] | スキップする工程（下記参照） |
+
+`skip` で指定可能な工程:
+
+- `reviewing` — AI コードレビューをスキップ（implementing → committing へ直行）
+- `watching_ci` — CI 待ちをスキップ（creating_pr → merging or done へ直行）
+- `documenter` — ドキュメント更新チェックをスキップ
+
+**優先順位**: CLI フラグ > Issue 本文 > デフォルト値
+
 ### `watch` — ラベル付き Issue を監視して自動処理
 
 ```bash
@@ -114,6 +145,25 @@ bun run test
 # ビルド
 bun run build
 ```
+
+## Slack 通知
+
+ワークフロー完了時（成功・失敗）に Slack 通知を送信できる。環境変数で設定する。
+
+### Webhook モード
+
+```bash
+export AIDEV_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
+```
+
+### Bot Token モード
+
+```bash
+export AIDEV_SLACK_BOT_TOKEN=xoxb-xxx
+export AIDEV_SLACK_CHANNEL=C12345678  # チャンネル ID またはユーザー ID（DM）
+```
+
+両方設定した場合は両方に通知される。通知失敗はワークフローに影響しない（non-fatal）。
 
 ## 実行ログ
 
