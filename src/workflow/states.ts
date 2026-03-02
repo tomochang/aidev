@@ -7,11 +7,13 @@ import { runImplementer } from "../agents/implementer.js";
 import { runReviewer } from "../agents/reviewer.js";
 import { runFixer } from "../agents/fixer.js";
 import type { Logger } from "../util/logger.js";
+import type { DocumenterInput } from "../agents/documenter.js";
 
 export interface Deps {
   git: GitAdapter;
   github: GitHubAdapter;
   logger: Logger;
+  runDocumenter: (input: DocumenterInput, logger: Logger) => Promise<void>;
 }
 
 function transition(
@@ -27,7 +29,7 @@ function shouldAutoMerge(ctx: RunContext): boolean {
 }
 
 export function createStateHandlers(deps: Deps): StateHandlerMap {
-  const { git, github, logger } = deps;
+  const { git, github, logger, runDocumenter } = deps;
 
   const init: StateHandler = async (ctx) => {
     const issue = await github.getIssue(ctx.issueNumber);
@@ -90,6 +92,8 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
 
   const committing: StateHandler = async (ctx) => {
     if (!ctx.result) throw new Error("No result available");
+    await runDocumenter({ result: ctx.result, cwd: ctx.cwd }, logger);
+    logger.info("Documentation check completed");
     await git.addAll(ctx.cwd);
     await git.commit(ctx.result.commitMessageDraft, ctx.cwd);
     logger.info("Committed changes");

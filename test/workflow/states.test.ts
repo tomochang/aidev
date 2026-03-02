@@ -25,6 +25,7 @@ function makeCtx(overrides: Partial<RunContext> = {}): RunContext {
 function makeDeps(overrides?: {
   git?: Partial<GitAdapter>;
   github?: Partial<GitHubAdapter>;
+  runDocumenter?: Deps["runDocumenter"];
 }): Deps {
   const git: GitAdapter = {
     createBranch: vi.fn(async () => {}),
@@ -57,7 +58,8 @@ function makeDeps(overrides?: {
     warn: vi.fn(),
     error: vi.fn(),
   };
-  return { git, github, logger };
+  const runDocumenter = overrides?.runDocumenter ?? vi.fn(async () => {});
+  return { git, github, logger, runDocumenter };
 }
 
 describe("init handler", () => {
@@ -254,5 +256,83 @@ describe("watching_ci handler", () => {
       expect(getCiStatus).toHaveBeenCalledTimes(2);
       expect(result.nextState).toBe("fixing");
     });
+  });
+});
+
+describe("committing handler", () => {
+  const result = {
+    changeSummary: "Added feature X",
+    changedFiles: ["src/foo.ts"],
+    testsRun: true,
+    commitMessageDraft: "feat: add feature X",
+    prBodyDraft: "## Summary\nAdded feature X",
+  };
+
+  it("calls runDocumenter before git operations", async () => {
+    const callOrder: string[] = [];
+    const runDocumenter = vi.fn(async () => {
+      callOrder.push("documenter");
+    });
+    const deps = makeDeps({
+      git: {
+        addAll: vi.fn(async () => {
+          callOrder.push("addAll");
+        }),
+        commit: vi.fn(async () => {
+          callOrder.push("commit");
+        }),
+      },
+      runDocumenter,
+    });
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "committing", result });
+
+    await handlers.committing!(ctx);
+
+    expect(callOrder).toEqual(["documenter", "addAll", "commit"]);
+  });
+
+  it("passes result and cwd to runDocumenter", async () => {
+    const runDocumenter = vi.fn(async () => {});
+    const deps = makeDeps({ runDocumenter });
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "committing", result, cwd: "/my/repo" });
+
+    await handlers.committing!(ctx);
+
+    expect(runDocumenter).toHaveBeenCalledWith(
+      { result, cwd: "/my/repo" },
+      deps.logger
+    );
+  });
+
+  it("transitions to creating_pr after commit", async () => {
+    const deps = makeDeps();
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "committing", result });
+
+    const { nextState } = await handlers.committing!(ctx);
+
+    expect(nextState).toBe("creating_pr");
+  });
+
+  it("transitions to done when dryRun is true", async () => {
+    const deps = makeDeps();
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "committing", result, dryRun: true });
+
+    const { nextState } = await handlers.committing!(ctx);
+
+    expect(nextState).toBe("done");
+  });
+
+  it("throws when result is missing", async () => {
+    const deps = makeDeps();
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "committing" });
+
+    await expect(handlers.committing!(ctx)).rejects.toThrow(
+      "No result available"
+    );
   });
 });
