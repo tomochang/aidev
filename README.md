@@ -19,6 +19,19 @@ bun run build
 
 ## コマンド
 
+### `init` — リポジトリ設定ファイルを生成
+
+```bash
+bun run aidev init [--cwd <path>] [--force]
+```
+
+`.aidev.yml` を対象ディレクトリに生成する。リポジトリごとのデフォルト設定として使用される。
+
+| オプション | 説明 | デフォルト |
+|-----------|------|-----------|
+| `--cwd <path>` | 生成先ディレクトリ | カレントディレクトリ |
+| `--force` | 既存ファイルを上書き | `false` |
+
 ### `run` — Issue を処理する
 
 ```bash
@@ -83,7 +96,7 @@ skip:
 - `watching_ci` — CI 待ちをスキップ（creating_pr → merging or done へ直行）
 - `documenter` — ドキュメント更新チェックをスキップ
 
-**優先順位**: CLI フラグ > Issue 本文 > デフォルト値
+**優先順位**: CLI フラグ > Issue 本文 > `.aidev.yml` > デフォルト値
 
 ### `watch` — ラベル付き Issue を監視して自動処理
 
