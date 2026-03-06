@@ -410,7 +410,7 @@ describe("init handler", () => {
     );
   });
 
-  it("initializes PR mode from PR metadata and uses the PR head branch", async () => {
+  it("initializes PR mode from PR metadata and uses the remote PR head branch as base", async () => {
     const deps = makeDeps({
       github: {
         getPr: vi.fn(async () => ({
@@ -438,7 +438,11 @@ describe("init handler", () => {
     expect(result.ctx.base).toBe("feat/base");
     expect(result.ctx.branch).toBe("feat/head");
     expect(result.ctx.headBranch).toBe("feat/head");
-    expect(deps.git.createBranch).toHaveBeenCalledWith("feat/head", "feat/head", ctx.cwd);
+    expect(deps.git.createBranch).toHaveBeenCalledWith(
+      "feat/head",
+      "origin/feat/head",
+      ctx.cwd
+    );
     expect(deps.github.updateIssueBody).not.toHaveBeenCalled();
   });
 });

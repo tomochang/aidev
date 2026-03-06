@@ -74,7 +74,11 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       };
 
       const mergedCtx = { ...ctx, ...patch };
-      await git.createBranch(mergedCtx.branch, pr.headRefName, mergedCtx.cwd);
+      await git.createBranch(
+        mergedCtx.branch,
+        `origin/${pr.headRefName}`,
+        mergedCtx.cwd
+      );
       logger.info("Checked out PR head branch", {
         branch: mergedCtx.branch,
         base: mergedCtx.base,
