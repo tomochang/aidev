@@ -29,6 +29,7 @@ describe("RunStateSchema", () => {
       "closing_issue",
       "done",
       "failed",
+      "manual_handoff",
     ];
     for (const state of validStates) {
       expect(RunStateSchema.parse(state)).toBe(state);
@@ -66,7 +67,8 @@ describe("PlanSchema", () => {
   it("accepts plan with optional investigation field", () => {
     const planWithInvestigation = {
       ...validPlan,
-      investigation: "Found that the dashboard uses Riverpod AsyncValue but initial state is AsyncData([]) instead of AsyncLoading.",
+      investigation:
+        "Found that the dashboard uses Riverpod AsyncValue but initial state is AsyncData([]) instead of AsyncLoading.",
     };
     const parsed = PlanSchema.parse(planWithInvestigation);
     expect(parsed.investigation).toContain("AsyncValue");
@@ -118,7 +120,7 @@ describe("ReviewSchema", () => {
 
   it("rejects invalid decision", () => {
     expect(() =>
-      ReviewSchema.parse({ decision: "reject", mustFix: [], summary: "No" })
+      ReviewSchema.parse({ decision: "reject", mustFix: [], summary: "No" }),
     ).toThrow();
   });
 });
@@ -246,7 +248,10 @@ describe("RunContextSchema", () => {
   });
 
   it("accepts branch-style base value", () => {
-    const parsed = RunContextSchema.parse({ ...validContext, base: "release/1.3" });
+    const parsed = RunContextSchema.parse({
+      ...validContext,
+      base: "release/1.3",
+    });
     expect(parsed.base).toBe("release/1.3");
   });
 
@@ -265,7 +270,11 @@ describe("RunContextSchema", () => {
       ...validContext,
       skipStates: ["reviewing", "watching_ci", "documenter"],
     });
-    expect(parsed.skipStates).toEqual(["reviewing", "watching_ci", "documenter"]);
+    expect(parsed.skipStates).toEqual([
+      "reviewing",
+      "watching_ci",
+      "documenter",
+    ]);
   });
 
   it("rejects invalid skipStates values", () => {
@@ -273,7 +282,7 @@ describe("RunContextSchema", () => {
       RunContextSchema.parse({
         ...validContext,
         skipStates: ["invalid_state"],
-      })
+      }),
     ).toThrow();
   });
 
@@ -288,5 +297,46 @@ describe("RunContextSchema", () => {
   it("defaults issueTitle to undefined", () => {
     const parsed = RunContextSchema.parse(validContext);
     expect(parsed.issueTitle).toBeUndefined();
+  });
+
+  it("accepts manual_handoff as valid state", () => {
+    const parsed = RunContextSchema.parse({
+      ...validContext,
+      state: "manual_handoff",
+    });
+    expect(parsed.state).toBe("manual_handoff");
+  });
+
+  it("accepts handoffReason and handoffContext optional fields", () => {
+    const parsed = RunContextSchema.parse({
+      ...validContext,
+      state: "manual_handoff",
+      handoffReason: "timeout",
+      handoffContext: "planning timed out after 30000ms",
+    });
+    expect(parsed.handoffReason).toBe("timeout");
+    expect(parsed.handoffContext).toBe("planning timed out after 30000ms");
+  });
+
+  it("defaults handoffReason and handoffContext to undefined", () => {
+    const parsed = RunContextSchema.parse(validContext);
+    expect(parsed.handoffReason).toBeUndefined();
+    expect(parsed.handoffContext).toBeUndefined();
+  });
+
+  it("accepts stateTimeouts as optional Record<string, number>", () => {
+    const parsed = RunContextSchema.parse({
+      ...validContext,
+      stateTimeouts: { planning: 30000, implementing: 600000 },
+    });
+    expect(parsed.stateTimeouts).toEqual({
+      planning: 30000,
+      implementing: 600000,
+    });
+  });
+
+  it("defaults stateTimeouts to undefined", () => {
+    const parsed = RunContextSchema.parse(validContext);
+    expect(parsed.stateTimeouts).toBeUndefined();
   });
 });

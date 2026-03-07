@@ -1,6 +1,12 @@
 import { query } from "@anthropic-ai/claude-code";
 import { PlanSchema, type Plan } from "../types.js";
-import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
+import {
+  createSafetyHook,
+  extractJson,
+  getBaseSdkOptions,
+  streamAgentResponse,
+  wrapUntrustedContent,
+} from "./shared.js";
 import type { Issue } from "../adapters/github.js";
 import type { Logger } from "../util/logger.js";
 
@@ -11,7 +17,7 @@ export interface PlannerInput {
 
 export async function runPlanner(
   input: PlannerInput,
-  logger: Logger
+  logger: Logger,
 ): Promise<Plan> {
   const prompt = `Analyze the codebase and the following GitHub issue. Then output your implementation plan as a single JSON object.
 

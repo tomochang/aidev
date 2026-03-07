@@ -3,7 +3,7 @@ export interface SlackMessageInput {
   targetNumber: number;
   issueTitle?: string;
   repo: string;
-  finalState: "done" | "failed";
+  finalState: "done" | "failed" | "manual_handoff";
   elapsedMs: number;
   prNumber?: number;
 }
@@ -26,8 +26,18 @@ function formatElapsed(ms: number): string {
 }
 
 export function formatSlackMessage(input: SlackMessageInput): string {
-  const icon = input.finalState === "done" ? ":white_check_mark:" : ":x:";
-  const status = input.finalState === "done" ? "completed" : "failed";
+  const icon =
+    input.finalState === "done"
+      ? ":white_check_mark:"
+      : input.finalState === "manual_handoff"
+        ? ":raised_hand:"
+        : ":x:";
+  const status =
+    input.finalState === "done"
+      ? "completed"
+      : input.finalState === "manual_handoff"
+        ? "manual handoff"
+        : "failed";
   const targetLabel = input.targetKind === "pr" ? "PR" : "Issue";
   const title = input.issueTitle ?? `${targetLabel} #${input.targetNumber}`;
   const elapsed = formatElapsed(input.elapsedMs);
@@ -42,7 +52,7 @@ export function formatSlackMessage(input: SlackMessageInput): string {
 }
 
 export function createSlackNotifier(
-  config: SlackNotifierConfig
+  config: SlackNotifierConfig,
 ): (message: string) => Promise<void> {
   const hasWebhook = !!config.webhookUrl;
   const hasBot = !!config.botToken && !!config.channel;
@@ -60,7 +70,7 @@ export function createSlackNotifier(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: message }),
-        }).then(() => {})
+        }).then(() => {}),
       );
     }
 
@@ -73,7 +83,7 @@ export function createSlackNotifier(
             Authorization: `Bearer ${config.botToken}`,
           },
           body: JSON.stringify({ channel: config.channel, text: message }),
-        }).then(() => {})
+        }).then(() => {}),
       );
     }
 

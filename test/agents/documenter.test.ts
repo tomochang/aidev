@@ -51,7 +51,7 @@ describe("runDocumenter", () => {
         },
         cwd: "/tmp/repo",
       },
-      noopLogger as any
+      noopLogger as any,
     );
 
     expect(capturedPrompt).toContain("Added watch --interval flag");
@@ -79,21 +79,25 @@ describe("runDocumenter", () => {
         },
         cwd: "/tmp/repo",
       },
-      noopLogger as any
+      noopLogger as any,
     );
 
     expect(capturedPrompt).toContain("README");
-    expect(capturedPrompt).toMatch(/no.*update|skip|unnecessary|not needed|do nothing/i);
+    expect(capturedPrompt).toMatch(
+      /no.*update|skip|unnecessary|not needed|do nothing/i,
+    );
   });
 
   it("uses only Read, Glob, Grep, Write, Edit tools", async () => {
     let capturedOptions: Record<string, unknown> = {};
-    mockQuery.mockImplementation(({ options }: { prompt: string; options: Record<string, unknown> }) => {
-      capturedOptions = options;
-      return (async function* () {
-        yield { type: "result", subtype: "success", result: "" };
-      })();
-    });
+    mockQuery.mockImplementation(
+      ({ options }: { prompt: string; options: Record<string, unknown> }) => {
+        capturedOptions = options;
+        return (async function* () {
+          yield { type: "result", subtype: "success", result: "" };
+        })();
+      },
+    );
 
     await runDocumenter(
       {
@@ -106,7 +110,7 @@ describe("runDocumenter", () => {
         },
         cwd: "/tmp/repo",
       },
-      noopLogger as any
+      noopLogger as any,
     );
 
     expect(capturedOptions.allowedTools).toEqual([
@@ -120,12 +124,14 @@ describe("runDocumenter", () => {
 
   it("sets maxTurns to 10", async () => {
     let capturedOptions: Record<string, unknown> = {};
-    mockQuery.mockImplementation(({ options }: { prompt: string; options: Record<string, unknown> }) => {
-      capturedOptions = options;
-      return (async function* () {
-        yield { type: "result", subtype: "success", result: "" };
-      })();
-    });
+    mockQuery.mockImplementation(
+      ({ options }: { prompt: string; options: Record<string, unknown> }) => {
+        capturedOptions = options;
+        return (async function* () {
+          yield { type: "result", subtype: "success", result: "" };
+        })();
+      },
+    );
 
     await runDocumenter(
       {
@@ -138,7 +144,7 @@ describe("runDocumenter", () => {
         },
         cwd: "/tmp/repo",
       },
-      noopLogger as any
+      noopLogger as any,
     );
 
     expect(capturedOptions.maxTurns).toBe(10);

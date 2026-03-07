@@ -16,13 +16,29 @@ export interface WorkflowOptions {
   logger?: Logger;
 }
 
-const terminalStates: ReadonlySet<RunState> = new Set(["done", "failed"]);
+const terminalStates: ReadonlySet<RunState> = new Set([
+  "done",
+  "failed",
+  "manual_handoff",
+]);
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<{ result: T; timedOut: false } | { timedOut: true }> {
+  return Promise.race([
+    promise.then((result) => ({ result, timedOut: false as const })),
+    new Promise<{ timedOut: true }>((resolve) =>
+      setTimeout(() => resolve({ timedOut: true }), timeoutMs),
+    ),
+  ]);
+}
 
 export async function runWorkflow(
   initial: RunContext,
   handlers: StateHandlerMap,
   persistence: Persistence,
-  options?: WorkflowOptions
+  options?: WorkflowOptions,
 ): Promise<RunContext> {
   let ctx = initial;
   const logger = options?.logger;
@@ -36,14 +52,48 @@ export async function runWorkflow(
 
     const from = ctx.state;
     const handlerStart = performance.now();
-    const { nextState, ctx: nextCtx } = await handler(ctx);
-    const elapsedMs = Math.round(performance.now() - handlerStart);
+    const timeoutMs = ctx.stateTimeouts?.[from];
 
-    logger?.info(`State ${from} completed`, { state: from, elapsedMs });
-    options?.onTransition?.(from, nextState);
+    if (timeoutMs != null) {
+      const outcome = await withTimeout(handler(ctx), timeoutMs);
+      if (outcome.timedOut) {
+        const elapsedMs = Math.round(performance.now() - handlerStart);
+        logger?.warn(`State ${from} timed out after ${timeoutMs}ms`, {
+          state: from,
+          timeoutMs,
+          elapsedMs,
+        });
 
-    ctx = { ...nextCtx, state: nextState };
-    await persistence.save(ctx);
+        const nextState: RunState = "manual_handoff";
+        options?.onTransition?.(from, nextState);
+
+        ctx = {
+          ...ctx,
+          state: nextState,
+          handoffReason: "timeout",
+          handoffContext: `${from} timed out after ${timeoutMs}ms`,
+          _timedOutState: from,
+        };
+        await persistence.save(ctx);
+        break;
+      }
+
+      const { nextState, ctx: nextCtx } = outcome.result;
+      const elapsedMs = Math.round(performance.now() - handlerStart);
+      logger?.info(`State ${from} completed`, { state: from, elapsedMs });
+      options?.onTransition?.(from, nextState);
+      ctx = { ...nextCtx, state: nextState };
+      await persistence.save(ctx);
+    } else {
+      const { nextState, ctx: nextCtx } = await handler(ctx);
+      const elapsedMs = Math.round(performance.now() - handlerStart);
+
+      logger?.info(`State ${from} completed`, { state: from, elapsedMs });
+      options?.onTransition?.(from, nextState);
+
+      ctx = { ...nextCtx, state: nextState };
+      await persistence.save(ctx);
+    }
   }
 
   const totalElapsedMs = Math.round(performance.now() - workflowStart);

@@ -8,10 +8,16 @@ import { runReviewer } from "../agents/reviewer.js";
 import { runFixer } from "../agents/fixer.js";
 import type { Logger } from "../util/logger.js";
 import type { DocumenterInput } from "../agents/documenter.js";
-import { parseIssueConfig, type ResolvedConfig } from "../config/issue-config.js";
+import {
+  parseIssueConfig,
+  type ResolvedConfig,
+} from "../config/issue-config.js";
 import type { IssueConfig } from "../config/issue-config.js";
 import { mergeConfigs } from "../config/merge-config.js";
-import { buildResolvedConfigBlock, upsertAidevBlock } from "../config/serialize-config.js";
+import {
+  buildResolvedConfigBlock,
+  upsertAidevBlock,
+} from "../config/serialize-config.js";
 import type { SkippableState } from "../types.js";
 import type { Issue, PullRequest } from "../adapters/github.js";
 
@@ -26,7 +32,7 @@ export interface Deps {
 function transition(
   ctx: RunContext,
   nextState: RunState,
-  patch?: Partial<RunContext>
+  patch?: Partial<RunContext>,
 ) {
   return { nextState, ctx: { ...ctx, ...patch, state: nextState } };
 }
@@ -60,7 +66,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
         const authenticatedUser = await github.getAuthenticatedUser();
         if (pr.author !== authenticatedUser) {
           throw new Error(
-            `PR #${pr.number} was created by '${pr.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`
+            `PR #${pr.number} was created by '${pr.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`,
           );
         }
       }
@@ -77,7 +83,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       await git.createBranch(
         mergedCtx.branch,
         `origin/${pr.headRefName}`,
-        mergedCtx.cwd
+        mergedCtx.cwd,
       );
       logger.info("Checked out PR head branch", {
         branch: mergedCtx.branch,
@@ -96,7 +102,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       const authenticatedUser = await github.getAuthenticatedUser();
       if (issue.author !== authenticatedUser) {
         throw new Error(
-          `Issue #${issue.number} was created by '${issue.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`
+          `Issue #${issue.number} was created by '${issue.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`,
         );
       }
     }
@@ -122,11 +128,13 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       issueTitle: issue.title,
     };
 
-    if (merged.maxFixAttempts !== undefined) patch.maxFixAttempts = merged.maxFixAttempts;
+    if (merged.maxFixAttempts !== undefined)
+      patch.maxFixAttempts = merged.maxFixAttempts;
     if (merged.autoMerge !== undefined) patch.autoMerge = merged.autoMerge;
     if (merged.dryRun !== undefined) patch.dryRun = merged.dryRun;
     if (merged.base !== undefined) patch.base = merged.base;
     if (merged.skip) patch.skipStates = merged.skip as SkippableState[];
+    if (merged.stateTimeouts) patch.stateTimeouts = merged.stateTimeouts;
 
     const mergedCtx = { ...ctx, ...patch };
 
@@ -155,7 +163,10 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     const planStart = performance.now();
     const plan = await runPlanner({ issue: workItem, cwd: ctx.cwd }, logger);
     const planElapsed = Math.round(performance.now() - planStart);
-    logger.info("Plan created", { summary: plan.summary, agentElapsedMs: planElapsed });
+    logger.info("Plan created", {
+      summary: plan.summary,
+      agentElapsedMs: planElapsed,
+    });
 
     if (plan.investigation) {
       const comment = `## 🔍 Investigation\n\n${plan.investigation}\n\n## Plan\n\n${plan.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`;
@@ -164,7 +175,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
         logger.info("Posted investigation to PR", { pr: ctx.prNumber });
       } else {
         await github.commentOnIssue(ctx.issueNumber!, comment);
-        logger.info("Posted investigation to issue", { issue: ctx.issueNumber });
+        logger.info("Posted investigation to issue", {
+          issue: ctx.issueNumber,
+        });
       }
     }
 
@@ -178,10 +191,11 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       {
         plan: ctx.plan,
         workItemKind: ctx.targetKind,
-        workItemNumber: ctx.targetKind === "pr" ? ctx.prNumber! : ctx.issueNumber!,
+        workItemNumber:
+          ctx.targetKind === "pr" ? ctx.prNumber! : ctx.issueNumber!,
         cwd: ctx.cwd,
       },
-      logger
+      logger,
     );
     const implElapsed = Math.round(performance.now() - implStart);
     logger.info("Implementation complete", {
@@ -201,10 +215,13 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     const reviewStart = performance.now();
     const review = await runReviewer(
       { plan: ctx.plan, diff, cwd: ctx.cwd },
-      logger
+      logger,
     );
     const reviewElapsed = Math.round(performance.now() - reviewStart);
-    logger.info("Review complete", { decision: review.decision, agentElapsedMs: reviewElapsed });
+    logger.info("Review complete", {
+      decision: review.decision,
+      agentElapsedMs: reviewElapsed,
+    });
 
     if (review.decision === "changes_requested") {
       return transition(ctx, "implementing", { review });
@@ -235,7 +252,10 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     if (!ctx.result) throw new Error("No result available");
     if (ctx.targetKind === "pr") {
       await git.push(ctx.headBranch ?? ctx.branch, ctx.cwd);
-      logger.info("Updated existing PR branch", { prNumber: ctx.prNumber, branch: ctx.headBranch ?? ctx.branch });
+      logger.info("Updated existing PR branch", {
+        prNumber: ctx.prNumber,
+        branch: ctx.headBranch ?? ctx.branch,
+      });
       return transition(ctx, "watching_ci", { prNumber: ctx.prNumber });
     }
     await git.push(ctx.branch, ctx.cwd);
@@ -279,7 +299,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
         });
       }
       if (status === "no_checks" && Date.now() - start >= gracePeriod) {
-        logger.info("No CI checks found after grace period, treating as passing");
+        logger.info(
+          "No CI checks found after grace period, treating as passing",
+        );
         if (!shouldAutoMerge(ctx)) return transition(ctx, "done");
         return transition(ctx, "merging");
       }
@@ -294,12 +316,12 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     if (!ctx.plan) throw new Error("No plan available");
     const ciLog = await github.getCheckRunLogs(ctx.branch);
     const fixStart = performance.now();
-    const fix = await runFixer(
-      { plan: ctx.plan, ciLog, cwd: ctx.cwd },
-      logger
-    );
+    const fix = await runFixer({ plan: ctx.plan, ciLog, cwd: ctx.cwd }, logger);
     const fixElapsed = Math.round(performance.now() - fixStart);
-    logger.info("Fix applied", { rootCause: fix.rootCause, agentElapsedMs: fixElapsed });
+    logger.info("Fix applied", {
+      rootCause: fix.rootCause,
+      agentElapsedMs: fixElapsed,
+    });
 
     await git.addAll(ctx.cwd);
     await git.commit(`fix: ${fix.rootCause}`, ctx.cwd);
@@ -316,7 +338,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
 
   const closing_issue: StateHandler = async (ctx) => {
     if (ctx.targetKind === "pr") {
-      logger.info("Skipping issue close for PR mode", { prNumber: ctx.prNumber });
+      logger.info("Skipping issue close for PR mode", {
+        prNumber: ctx.prNumber,
+      });
       return transition(ctx, "done");
     }
     await github.closeIssue(ctx.issueNumber!);

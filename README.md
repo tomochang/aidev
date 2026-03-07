@@ -27,10 +27,10 @@ bun run aidev init [--cwd <path>] [--force]
 
 `.aidev.yml` を対象ディレクトリに生成する。リポジトリごとのデフォルト設定として使用される。
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--cwd <path>` | 生成先ディレクトリ | カレントディレクトリ |
-| `--force` | 既存ファイルを上書き | `false` |
+| オプション     | 説明                 | デフォルト           |
+| -------------- | -------------------- | -------------------- |
+| `--cwd <path>` | 生成先ディレクトリ   | カレントディレクトリ |
+| `--force`      | 既存ファイルを上書き | `false`              |
 
 ### `run` — Issue または PR を処理する
 
@@ -39,20 +39,20 @@ bun run aidev run --issue <number> --repo <owner/name> --cwd <path>
 bun run aidev run --pr <number> --repo <owner/name> --cwd <path>
 ```
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--issue <number>` | GitHub Issue 番号 | — |
-| `--pr <number>` | GitHub Pull Request 番号 | — |
-| `--repo <owner/name>` | GitHub リポジトリ | 自動検出 |
-| `--cwd <path>` | 作業ディレクトリ | カレントディレクトリ |
-| `--auto-merge` | CI 通過後に自動マージ | `false` |
-| `--base <branch>` | ブランチ作成元のベースブランチまたはタグ | `main` |
-| `--dry-run` | push / PR 作成 / マージをスキップ | `false` |
-| `--resume` | 前回の実行を途中から再開 | — |
-| `--max-fix-attempts <n>` | CI 失敗時の最大修正回数 | `3` |
-| `--claude-path <path>` | Claude Code バイナリのパス | PATH から自動検出 |
-| `-y, --yes` | 実行前の確認プロンプトをスキップ | `false` |
-| `--allow-foreign-issues` | 他ユーザーが作成した Issue の処理を許可 | `false` |
+| オプション               | 説明                                     | デフォルト           |
+| ------------------------ | ---------------------------------------- | -------------------- |
+| `--issue <number>`       | GitHub Issue 番号                        | —                    |
+| `--pr <number>`          | GitHub Pull Request 番号                 | —                    |
+| `--repo <owner/name>`    | GitHub リポジトリ                        | 自動検出             |
+| `--cwd <path>`           | 作業ディレクトリ                         | カレントディレクトリ |
+| `--auto-merge`           | CI 通過後に自動マージ                    | `false`              |
+| `--base <branch>`        | ブランチ作成元のベースブランチまたはタグ | `main`               |
+| `--dry-run`              | push / PR 作成 / マージをスキップ        | `false`              |
+| `--resume`               | 前回の実行を途中から再開                 | —                    |
+| `--max-fix-attempts <n>` | CI 失敗時の最大修正回数                  | `3`                  |
+| `--claude-path <path>`   | Claude Code バイナリのパス               | PATH から自動検出    |
+| `-y, --yes`              | 実行前の確認プロンプトをスキップ         | `false`              |
+| `--allow-foreign-issues` | 他ユーザーが作成した Issue の処理を許可  | `false`              |
 
 `--issue` と `--pr` は排他的で、**どちらか一方を必ず指定**する。
 
@@ -92,22 +92,28 @@ base: release/1.3
 skip:
   - reviewing
   - documenter
+stateTimeouts:
+  - planning: 600000
+  - implementing: 1800000
 ```
 ````
 
-| パラメータ | 型 | 説明 |
-|-----------|---|------|
-| `maxFixAttempts` | number | CI 修正の最大試行回数 |
-| `autoMerge` | boolean | CI 通過後に自動マージ |
-| `dryRun` | boolean | push/PR/merge をスキップ |
-| `base` | string | ブランチ作成元 |
-| `skip` | string[] | スキップする工程（下記参照） |
+| パラメータ       | 型                      | 説明                                       |
+| ---------------- | ----------------------- | ------------------------------------------ |
+| `maxFixAttempts` | number                  | CI 修正の最大試行回数                      |
+| `autoMerge`      | boolean                 | CI 通過後に自動マージ                      |
+| `dryRun`         | boolean                 | push/PR/merge をスキップ                   |
+| `base`           | string                  | ブランチ作成元                             |
+| `skip`           | string[]                | スキップする工程（下記参照）               |
+| `stateTimeouts`  | Record<string, number>  | 各ステートの壁時計タイムアウト（ミリ秒）   |
 
 `skip` で指定可能な工程:
 
 - `reviewing` — AI コードレビューをスキップ（implementing → committing へ直行）
 - `watching_ci` — CI 待ちをスキップ（creating_pr → merging or done へ直行）
 - `documenter` — ドキュメント更新チェックをスキップ
+
+`stateTimeouts` の書式は YAML リスト形式で、各エントリは `ステート名: ミリ秒` とする。タイムアウトすると `manual_handoff` 状態に遷移し、Slack 通知が送信される。`--resume` で再開するとタイムアウトしたステートから再実行される。
 
 **優先順位**: CLI フラグ > Issue 本文 > `.aidev.yml` > デフォルト値
 
@@ -123,14 +129,14 @@ bun run aidev watch --repo <owner/name> --cwd <path>
 
 各 Issue は `.worktrees/issue-<number>` に作成される git worktree 内で処理されるため、複数 Issue を並行して安全に処理できる。worktree は処理完了後に自動で削除される。`.worktrees/` を `.gitignore` に追加することを推奨する。
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--label <label>` | 監視するラベル | `ai:run` |
-| `--interval <seconds>` | ポーリング間隔（秒） | `30` |
-| `--base <branch>` | worktree 作成元のベースブランチまたはタグ | `main` |
-| `--cwd <path>` | 作業ディレクトリ | カレントディレクトリ |
-| `--repo <owner/name>` | GitHub リポジトリ | 自動検出 |
-| `--claude-path <path>` | Claude Code バイナリのパス | PATH から自動検出 |
+| オプション             | 説明                                      | デフォルト           |
+| ---------------------- | ----------------------------------------- | -------------------- |
+| `--label <label>`      | 監視するラベル                            | `ai:run`             |
+| `--interval <seconds>` | ポーリング間隔（秒）                      | `30`                 |
+| `--base <branch>`      | worktree 作成元のベースブランチまたはタグ | `main`               |
+| `--cwd <path>`         | 作業ディレクトリ                          | カレントディレクトリ |
+| `--repo <owner/name>`  | GitHub リポジトリ                         | 自動検出             |
+| `--claude-path <path>` | Claude Code バイナリのパス                | PATH から自動検出    |
 
 ### `status` — 実行状態を確認
 
@@ -141,25 +147,28 @@ bun run aidev status <run-id>
 ## ワークフロー
 
 ```
-init          Issue 取得、ブランチ作成
+init            Issue 取得、ブランチ作成
   ↓
-planning      Claude がコードベースを調査し、実装計画を策定
+planning        Claude がコードベースを調査し、実装計画を策定
   ↓
-implementing  Claude が計画に基づいて実装
+implementing    Claude が計画に基づいて実装
   ↓
-reviewing     Claude が diff をレビュー（approve or changes_requested）
-  ↓           ← changes_requested の場合 implementing に戻る
-committing    git commit
+reviewing       Claude が diff をレビュー（approve or changes_requested）
+  ↓              ← changes_requested の場合 implementing に戻る
+committing      git commit
   ↓
-creating_pr   git push → PR 作成
+creating_pr     git push → PR 作成
   ↓
-watching_ci   CI の結果をポーリング（最大10分）
-  ↓           ← CI 失敗の場合 fixing → watching_ci のループ（最大3回）
-merging       PR をマージ（auto-merge 有効時のみ）
+watching_ci     CI の結果をポーリング（最大10分）
+  ↓              ← CI 失敗の場合 fixing → watching_ci のループ（最大3回）
+merging         PR をマージ（auto-merge 有効時のみ）
   ↓
-closing_issue Issue をクローズ
+closing_issue   Issue をクローズ
   ↓
 done
+
+※ stateTimeouts が設定されたステートがタイムアウトすると manual_handoff に遷移する。
+  --resume で再開すると、タイムアウトしたステートから処理を再開する。
 ```
 
 ## 開発

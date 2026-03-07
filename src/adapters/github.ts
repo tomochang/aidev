@@ -85,12 +85,7 @@ export function createGitHubAdapter(repo: string): GitHubAdapter {
     },
 
     async getAuthenticatedUser() {
-      const { stdout } = await execa("gh", [
-        "api",
-        "user",
-        "--jq",
-        ".login",
-      ]);
+      const { stdout } = await execa("gh", ["api", "user", "--jq", ".login"]);
       return stdout.trim();
     },
 
@@ -167,13 +162,7 @@ export function createGitHubAdapter(repo: string): GitHubAdapter {
     },
 
     async closeIssue(number) {
-      await execa("gh", [
-        "issue",
-        "close",
-        String(number),
-        "--repo",
-        repo,
-      ]);
+      await execa("gh", ["issue", "close", String(number), "--repo", repo]);
     },
 
     async getCheckRunLogs(branch) {

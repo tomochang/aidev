@@ -1,6 +1,12 @@
 import { query } from "@anthropic-ai/claude-code";
 import { ReviewSchema, type Plan, type Review } from "../types.js";
-import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
+import {
+  createSafetyHook,
+  extractJson,
+  getBaseSdkOptions,
+  streamAgentResponse,
+  wrapUntrustedContent,
+} from "./shared.js";
 import type { Logger } from "../util/logger.js";
 
 export interface ReviewerInput {
@@ -11,7 +17,7 @@ export interface ReviewerInput {
 
 export async function runReviewer(
   input: ReviewerInput,
-  logger: Logger
+  logger: Logger,
 ): Promise<Review> {
   const prompt = `You are a code review agent. Review the implementation against the plan.
 

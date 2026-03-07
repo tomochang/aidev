@@ -24,7 +24,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["checkout", "-B", "feature/x", "main"],
-        { cwd }
+        { cwd },
       );
     });
 
@@ -36,7 +36,7 @@ describe("GitAdapter", () => {
         1,
         "git",
         ["checkout", "-B", "feature/x", "main"],
-        { cwd }
+        { cwd },
       );
     });
 
@@ -45,7 +45,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["checkout", "-B", "feature/x", "v1.2.0"],
-        { cwd }
+        { cwd },
       );
     });
 
@@ -55,7 +55,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["checkout", "-B", "feature/x", "release/1.3"],
-        { cwd }
+        { cwd },
       );
     });
   });
@@ -73,7 +73,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["commit", "-m", "feat: add X"],
-        { cwd }
+        { cwd },
       );
     });
   });
@@ -84,7 +84,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["push", "-u", "origin", "feature/x"],
-        { cwd }
+        { cwd },
       );
     });
   });
@@ -93,11 +93,9 @@ describe("GitAdapter", () => {
     it("runs git diff and returns stdout", async () => {
       mockExeca.mockResolvedValue({ stdout: "diff output" } as any);
       const result = await git.diff("main", cwd);
-      expect(mockExeca).toHaveBeenCalledWith(
-        "git",
-        ["diff", "main...HEAD"],
-        { cwd }
-      );
+      expect(mockExeca).toHaveBeenCalledWith("git", ["diff", "main...HEAD"], {
+        cwd,
+      });
       expect(result).toBe("diff output");
     });
   });
@@ -109,7 +107,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["rev-parse", "--abbrev-ref", "HEAD"],
-        { cwd }
+        { cwd },
       );
       expect(branch).toBe("main");
     });
@@ -121,7 +119,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["worktree", "add", "/tmp/wt-42", "main"],
-        { cwd }
+        { cwd },
       );
     });
   });
@@ -132,7 +130,7 @@ describe("GitAdapter", () => {
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
         ["worktree", "remove", "--force", "/tmp/wt-42"],
-        { cwd }
+        { cwd },
       );
     });
   });

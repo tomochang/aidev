@@ -20,6 +20,7 @@ export const RunStateSchema = z.enum([
   "closing_issue",
   "done",
   "failed",
+  "manual_handoff",
 ]);
 export type RunState = z.infer<typeof RunStateSchema>;
 
@@ -57,50 +58,56 @@ export const FixSchema = z.object({
 });
 export type Fix = z.infer<typeof FixSchema>;
 
-export const RunContextSchema = z.object({
-  runId: z.string(),
-  targetKind: z.enum(["issue", "pr"]).default("issue"),
-  issueNumber: z.number().optional(),
-  prNumber: z.number().optional(),
-  repo: z.string(),
-  cwd: z.string(),
-  state: RunStateSchema,
-  branch: z.string(),
-  headBranch: z.string().optional(),
-  base: z.string().default("main"),
-  maxFixAttempts: z.number().default(3),
-  fixAttempts: z.number().default(0),
-  dryRun: z.boolean(),
-  autoMerge: z.boolean().default(false),
-  issueLabels: z.array(z.string()).default([]),
-  skipAuthorCheck: z.boolean().default(false),
-  skipStates: z.array(SkippableStateSchema).default([]),
-  issueTitle: z.string().optional(),
-  plan: PlanSchema.optional(),
-  result: ResultSchema.optional(),
-  review: ReviewSchema.optional(),
-  fix: FixSchema.optional(),
-}).superRefine((ctx, issueCtx) => {
-  if (ctx.targetKind === "issue" && ctx.issueNumber == null) {
-    issueCtx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["issueNumber"],
-      message: "issueNumber is required for issue mode",
-    });
-  }
-  if (ctx.targetKind === "pr" && ctx.prNumber == null) {
-    issueCtx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["prNumber"],
-      message: "prNumber is required for PR mode",
-    });
-  }
-});
+export const RunContextSchema = z
+  .object({
+    runId: z.string(),
+    targetKind: z.enum(["issue", "pr"]).default("issue"),
+    issueNumber: z.number().optional(),
+    prNumber: z.number().optional(),
+    repo: z.string(),
+    cwd: z.string(),
+    state: RunStateSchema,
+    branch: z.string(),
+    headBranch: z.string().optional(),
+    base: z.string().default("main"),
+    maxFixAttempts: z.number().default(3),
+    fixAttempts: z.number().default(0),
+    dryRun: z.boolean(),
+    autoMerge: z.boolean().default(false),
+    issueLabels: z.array(z.string()).default([]),
+    skipAuthorCheck: z.boolean().default(false),
+    skipStates: z.array(SkippableStateSchema).default([]),
+    issueTitle: z.string().optional(),
+    plan: PlanSchema.optional(),
+    result: ResultSchema.optional(),
+    review: ReviewSchema.optional(),
+    fix: FixSchema.optional(),
+    handoffReason: z.string().optional(),
+    handoffContext: z.string().optional(),
+    stateTimeouts: z.record(z.string(), z.number()).optional(),
+    _timedOutState: z.string().optional(),
+  })
+  .superRefine((ctx, issueCtx) => {
+    if (ctx.targetKind === "issue" && ctx.issueNumber == null) {
+      issueCtx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["issueNumber"],
+        message: "issueNumber is required for issue mode",
+      });
+    }
+    if (ctx.targetKind === "pr" && ctx.prNumber == null) {
+      issueCtx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["prNumber"],
+        message: "prNumber is required for PR mode",
+      });
+    }
+  });
 export type RunContext = z.infer<typeof RunContextSchema> & {
   /** Set of CLI flags explicitly specified (transient, not persisted) */
   _cliExplicit?: Set<string>;
 };
 
 export type StateHandler = (
-  ctx: RunContext
+  ctx: RunContext,
 ) => Promise<{ nextState: RunState; ctx: RunContext }>;

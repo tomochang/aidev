@@ -4,7 +4,11 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { createGitAdapter } from "./adapters/git.js";
-import { createGitHubAdapter, type Issue, type PullRequest } from "./adapters/github.js";
+import {
+  createGitHubAdapter,
+  type Issue,
+  type PullRequest,
+} from "./adapters/github.js";
 import { createLogger } from "./util/logger.js";
 import { runWorkflow, type Persistence } from "./workflow/engine.js";
 import { createStateHandlers } from "./workflow/states.js";
@@ -25,29 +29,29 @@ function createFilePersistence(baseDir: string): Persistence {
       if (ctx.plan)
         await writeFile(
           join(dir, "plan.json"),
-          JSON.stringify(ctx.plan, null, 2)
+          JSON.stringify(ctx.plan, null, 2),
         );
       if (ctx.result)
         await writeFile(
           join(dir, "result.json"),
-          JSON.stringify(ctx.result, null, 2)
+          JSON.stringify(ctx.result, null, 2),
         );
       if (ctx.review)
         await writeFile(
           join(dir, "review.json"),
-          JSON.stringify(ctx.review, null, 2)
+          JSON.stringify(ctx.review, null, 2),
         );
       if (ctx.fix)
         await writeFile(
           join(dir, "fix.json"),
-          JSON.stringify(ctx.fix, null, 2)
+          JSON.stringify(ctx.fix, null, 2),
         );
     },
     async load(runId) {
       try {
         const data = await readFile(
           join(baseDir, runId, "state.json"),
-          "utf-8"
+          "utf-8",
         );
         return JSON.parse(data) as RunContext;
       } catch {
@@ -66,7 +70,10 @@ function createFilePersistence(baseDir: string): Persistence {
       dirs.sort().reverse();
       for (const dir of dirs) {
         try {
-          const data = await readFile(join(baseDir, dir, "state.json"), "utf-8");
+          const data = await readFile(
+            join(baseDir, dir, "state.json"),
+            "utf-8",
+          );
           const ctx = JSON.parse(data) as RunContext;
           if (ctx.issueNumber === issueNumber) return ctx;
         } catch {
@@ -86,7 +93,10 @@ function createFilePersistence(baseDir: string): Persistence {
       dirs.sort().reverse();
       for (const dir of dirs) {
         try {
-          const data = await readFile(join(baseDir, dir, "state.json"), "utf-8");
+          const data = await readFile(
+            join(baseDir, dir, "state.json"),
+            "utf-8",
+          );
           const ctx = JSON.parse(data) as RunContext;
           if (ctx.prNumber === prNumber && ctx.targetKind === "pr") return ctx;
         } catch {
@@ -106,7 +116,10 @@ function detectRepo(cwd: string): string {
 export function createCli() {
   const program = new Command();
 
-  program.name("aidev").description("AI-powered development loop").version("0.0.1");
+  program
+    .name("aidev")
+    .description("AI-powered development loop")
+    .version("0.0.1");
 
   const runCmd = program
     .command("run")
@@ -117,176 +130,217 @@ export function createCli() {
     .option("--max-fix-attempts <n>", "Max CI fix attempts", parseInt, 3)
     .option("--dry-run", "Skip push/PR/merge", false)
     .option("--auto-merge", "Merge PR and close issue after CI passes", false)
-    .option("--base <branch>", "Base branch or tag to create branch from", "main")
+    .option(
+      "--base <branch>",
+      "Base branch or tag to create branch from",
+      "main",
+    )
     .option("--repo <owner/name>", "GitHub repo (owner/name)")
     .option("--claude-path <path>", "Path to native Claude Code executable")
     .option("--resume", "Resume the latest run for this target")
     .option("-y, --yes", "Skip interactive confirmation", false)
-    .option("--allow-foreign-issues", "Allow processing issues or PRs from other users", false);
+    .option(
+      "--allow-foreign-issues",
+      "Allow processing issues or PRs from other users",
+      false,
+    );
 
   runCmd.action(async (opts) => {
-      if (opts.claudePath) process.env.CLAUDE_EXECUTABLE = opts.claudePath;
-      const logger = createLogger("info");
-      const baseDir = join(
-        process.env.HOME ?? "~",
-        ".devloop",
-        "runs"
-      );
-      const persistence = createFilePersistence(baseDir);
-      const targetKind = opts.pr != null ? "pr" : "issue";
-      const targetNumber = targetKind === "pr" ? opts.pr : opts.issue;
+    if (opts.claudePath) process.env.CLAUDE_EXECUTABLE = opts.claudePath;
+    const logger = createLogger("info");
+    const baseDir = join(process.env.HOME ?? "~", ".devloop", "runs");
+    const persistence = createFilePersistence(baseDir);
+    const targetKind = opts.pr != null ? "pr" : "issue";
+    const targetNumber = targetKind === "pr" ? opts.pr : opts.issue;
 
-      if ((opts.issue == null && opts.pr == null) || (opts.issue != null && opts.pr != null)) {
-        logger.error("Specify exactly one of --issue or --pr");
+    if (
+      (opts.issue == null && opts.pr == null) ||
+      (opts.issue != null && opts.pr != null)
+    ) {
+      logger.error("Specify exactly one of --issue or --pr");
+      process.exit(1);
+    }
+
+    let ctx: RunContext;
+
+    if (opts.resume) {
+      const saved =
+        targetKind === "pr"
+          ? await persistence.findLatestByPr?.(opts.pr)
+          : await persistence.findLatestByIssue?.(opts.issue);
+      if (!saved) {
+        logger.error("No previous run found for target", {
+          targetKind,
+          targetNumber,
+        });
         process.exit(1);
       }
+      // Override flags for resumed run
+      ctx = {
+        ...saved,
+        dryRun: opts.dryRun,
+        autoMerge: opts.autoMerge,
+      };
+      // If previous run completed as done (dry-run), restart from creating_pr
+      // (commit already exists, just need push + PR)
+      if (saved.state === "done" && saved.dryRun) {
+        ctx.state = "creating_pr";
+      }
+      // If previous run ended in manual_handoff, restart from the timed-out state
+      if (saved.state === "manual_handoff" && saved._timedOutState) {
+        ctx.state = saved._timedOutState as RunContext["state"];
+        ctx.handoffReason = undefined;
+        ctx.handoffContext = undefined;
+        ctx._timedOutState = undefined;
+      }
+      await runPreflightChecks();
+      logger.info("Resuming run", {
+        runId: ctx.runId,
+        fromState: ctx.state,
+        targetKind,
+        targetNumber,
+      });
+    } else {
+      const runId = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
+      const cwd = opts.cwd;
+      const repo = opts.repo ?? detectRepo(cwd);
+      const ghForConfirm = createGitHubAdapter(repo);
 
-      let ctx: RunContext;
+      let issue: Issue | undefined;
+      let pr: PullRequest | undefined;
+      let branch: string;
 
       await runPreflightChecks();
 
-      if (opts.resume) {
-        const saved =
-          targetKind === "pr"
-            ? await persistence.findLatestByPr?.(opts.pr)
-            : await persistence.findLatestByIssue?.(opts.issue);
-        if (!saved) {
-          logger.error("No previous run found for target", { targetKind, targetNumber });
-          process.exit(1);
-        }
-        // Override flags for resumed run
-        ctx = {
-          ...saved,
-          dryRun: opts.dryRun,
-          autoMerge: opts.autoMerge,
-        };
-        // If previous run completed as done (dry-run), restart from creating_pr
-        // (commit already exists, just need push + PR)
-        if (saved.state === "done" && saved.dryRun) {
-          ctx.state = "creating_pr";
-        }
-        logger.info("Resuming run", { runId: ctx.runId, fromState: ctx.state, targetKind, targetNumber });
+      if (targetKind === "pr") {
+        pr = await ghForConfirm.getPr(opts.pr);
+        branch = pr.headRefName;
       } else {
-        const runId = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
-        const cwd = opts.cwd;
-        const repo = opts.repo ?? detectRepo(cwd);
-        const ghForConfirm = createGitHubAdapter(repo);
+        issue = await ghForConfirm.getIssue(opts.issue);
+        branch = `aidev/issue-${opts.issue}`;
+      }
 
-        let issue: Issue | undefined;
-        let pr: PullRequest | undefined;
-        let branch: string;
+      const target = targetKind === "pr" ? pr! : issue!;
 
-        if (targetKind === "pr") {
-          pr = await ghForConfirm.getPr(opts.pr);
-          branch = pr.headRefName;
-        } else {
-          issue = await ghForConfirm.getIssue(opts.issue);
-          branch = `aidev/issue-${opts.issue}`;
-        }
-
-        const target = targetKind === "pr" ? pr! : issue!;
-
-        if (!opts.yes) {
-          if (process.stdin.isTTY) {
-            const truncated = target.body && target.body.length > 500
+      if (!opts.yes) {
+        if (process.stdin.isTTY) {
+          const truncated =
+            target.body && target.body.length > 500
               ? target.body.slice(0, 500) + "..."
               : target.body;
-            console.log(`\n--- ${targetKind.toUpperCase()} #${target.number}: ${target.title} ---`);
-            console.log(`Author: ${target.author}`);
-            if (truncated) console.log(`\n${truncated}\n`);
+          console.log(
+            `\n--- ${targetKind.toUpperCase()} #${target.number}: ${target.title} ---`,
+          );
+          console.log(`Author: ${target.author}`);
+          if (truncated) console.log(`\n${truncated}\n`);
 
-            const confirmed = await new Promise<boolean>((resolve) => {
-              const rl = createInterface({ input: process.stdin, output: process.stdout });
-              rl.question("Proceed with this issue? (y/N) ", (answer) => {
-                rl.close();
-                resolve(answer.toLowerCase() === "y");
-              });
+          const confirmed = await new Promise<boolean>((resolve) => {
+            const rl = createInterface({
+              input: process.stdin,
+              output: process.stdout,
             });
-
-            if (!confirmed) {
-              logger.info("Cancelled by user");
-              process.exit(0);
-            }
-          } else {
-            logger.info("Non-interactive mode: skipping confirmation (use --yes to suppress this message)");
-          }
-        }
-
-        // Track which flags were explicitly set via CLI
-        const cliExplicit = new Set<string>();
-        const flagMap: Record<string, string> = {
-          maxFixAttempts: "max-fix-attempts",
-          dryRun: "dry-run",
-          autoMerge: "auto-merge",
-          base: "base",
-        };
-        for (const [ctxKey, cliName] of Object.entries(flagMap)) {
-          if (runCmd.getOptionValueSource(cliName) === "cli") {
-            cliExplicit.add(ctxKey);
-          }
-        }
-
-        ctx = {
-          runId,
-          targetKind,
-          issueNumber: opts.issue,
-          prNumber: opts.pr,
-          repo,
-          cwd,
-          state: "init",
-          branch,
-          headBranch: pr?.headRefName,
-          base: opts.base,
-          maxFixAttempts: opts.maxFixAttempts,
-          fixAttempts: 0,
-          dryRun: opts.dryRun,
-          autoMerge: opts.autoMerge,
-          issueLabels: [],
-          skipStates: [],
-          skipAuthorCheck: opts.allowForeignIssues,
-          _cliExplicit: cliExplicit.size > 0 ? cliExplicit : undefined,
-        };
-      }
-
-      const git = createGitAdapter();
-      const github = createGitHubAdapter(ctx.repo);
-      const handlers = createStateHandlers({ git, github, logger, runDocumenter, loadRepoConfig });
-
-      const slackNotify = createSlackNotifier({
-        webhookUrl: process.env.AIDEV_SLACK_WEBHOOK_URL,
-        botToken: process.env.AIDEV_SLACK_BOT_TOKEN,
-        channel: process.env.AIDEV_SLACK_CHANNEL,
-      });
-
-      logger.info("Starting devloop", { runId: ctx.runId, targetKind, targetNumber, repo: ctx.repo });
-      const workflowStart = performance.now();
-
-      const result = await runWorkflow(ctx, handlers, persistence, {
-        logger,
-        onTransition: (from, to) =>
-          logger.info("State transition", { from, to }),
-        onComplete: async (finalCtx) => {
-          const elapsedMs = Math.round(performance.now() - workflowStart);
-          const message = formatSlackMessage({
-            targetKind: finalCtx.targetKind,
-            targetNumber: finalCtx.issueNumber ?? finalCtx.prNumber!,
-            issueTitle: finalCtx.issueTitle,
-            repo: finalCtx.repo,
-            finalState: finalCtx.state as "done" | "failed",
-            elapsedMs,
-            prNumber: finalCtx.prNumber,
+            rl.question("Proceed with this issue? (y/N) ", (answer) => {
+              rl.close();
+              resolve(answer.toLowerCase() === "y");
+            });
           });
-          await slackNotify(message);
-        },
-      });
 
-      if (result.state === "done") {
-        logger.info("Devloop completed successfully", { runId: ctx.runId });
-      } else {
-        logger.error("Devloop failed", { runId: ctx.runId, state: result.state });
-        process.exit(1);
+          if (!confirmed) {
+            logger.info("Cancelled by user");
+            process.exit(0);
+          }
+        } else {
+          logger.info(
+            "Non-interactive mode: skipping confirmation (use --yes to suppress this message)",
+          );
+        }
       }
+
+      // Track which flags were explicitly set via CLI
+      const cliExplicit = new Set<string>();
+      const flagMap: Record<string, string> = {
+        maxFixAttempts: "max-fix-attempts",
+        dryRun: "dry-run",
+        autoMerge: "auto-merge",
+        base: "base",
+      };
+      for (const [ctxKey, cliName] of Object.entries(flagMap)) {
+        if (runCmd.getOptionValueSource(cliName) === "cli") {
+          cliExplicit.add(ctxKey);
+        }
+      }
+
+      ctx = {
+        runId,
+        targetKind,
+        issueNumber: opts.issue,
+        prNumber: opts.pr,
+        repo,
+        cwd,
+        state: "init",
+        branch,
+        headBranch: pr?.headRefName,
+        base: opts.base,
+        maxFixAttempts: opts.maxFixAttempts,
+        fixAttempts: 0,
+        dryRun: opts.dryRun,
+        autoMerge: opts.autoMerge,
+        issueLabels: [],
+        skipStates: [],
+        skipAuthorCheck: opts.allowForeignIssues,
+        _cliExplicit: cliExplicit.size > 0 ? cliExplicit : undefined,
+      };
+    }
+
+    const git = createGitAdapter();
+    const github = createGitHubAdapter(ctx.repo);
+    const handlers = createStateHandlers({
+      git,
+      github,
+      logger,
+      runDocumenter,
+      loadRepoConfig,
     });
+
+    const slackNotify = createSlackNotifier({
+      webhookUrl: process.env.AIDEV_SLACK_WEBHOOK_URL,
+      botToken: process.env.AIDEV_SLACK_BOT_TOKEN,
+      channel: process.env.AIDEV_SLACK_CHANNEL,
+    });
+
+    logger.info("Starting devloop", {
+      runId: ctx.runId,
+      targetKind,
+      targetNumber,
+      repo: ctx.repo,
+    });
+    const workflowStart = performance.now();
+
+    const result = await runWorkflow(ctx, handlers, persistence, {
+      logger,
+      onTransition: (from, to) => logger.info("State transition", { from, to }),
+      onComplete: async (finalCtx) => {
+        const elapsedMs = Math.round(performance.now() - workflowStart);
+        const message = formatSlackMessage({
+          targetKind: finalCtx.targetKind,
+          targetNumber: finalCtx.issueNumber ?? finalCtx.prNumber!,
+          issueTitle: finalCtx.issueTitle,
+          repo: finalCtx.repo,
+          finalState: finalCtx.state as "done" | "failed" | "manual_handoff",
+          elapsedMs,
+          prNumber: finalCtx.prNumber,
+        });
+        await slackNotify(message);
+      },
+    });
+
+    if (result.state === "done") {
+      logger.info("Devloop completed successfully", { runId: ctx.runId });
+    } else {
+      logger.error("Devloop failed", { runId: ctx.runId, state: result.state });
+      process.exit(1);
+    }
+  });
 
   program
     .command("watch")
@@ -294,7 +348,11 @@ export function createCli() {
     .option("--label <label>", "Label to watch", "ai:run")
     .option("--interval <seconds>", "Poll interval in seconds", parseInt, 30)
     .option("--cwd <path>", "Working directory", process.cwd())
-    .option("--base <branch>", "Base branch or tag to create worktrees from", "main")
+    .option(
+      "--base <branch>",
+      "Base branch or tag to create worktrees from",
+      "main",
+    )
     .option("--repo <owner/name>", "GitHub repo (owner/name)")
     .option("--claude-path <path>", "Path to native Claude Code executable")
     .action(async (opts) => {
@@ -307,7 +365,13 @@ export function createCli() {
       const git = createGitAdapter();
       const github = createGitHubAdapter(repo);
       const persistence = createFilePersistence(baseDir);
-      const handlers = createStateHandlers({ git, github, logger, runDocumenter, loadRepoConfig });
+      const handlers = createStateHandlers({
+        git,
+        github,
+        logger,
+        runDocumenter,
+        loadRepoConfig,
+      });
 
       const slackNotify = createSlackNotifier({
         webhookUrl: process.env.AIDEV_SLACK_WEBHOOK_URL,
@@ -376,7 +440,10 @@ export function createCli() {
                     targetNumber: finalCtx.issueNumber ?? finalCtx.prNumber!,
                     issueTitle: finalCtx.issueTitle,
                     repo: finalCtx.repo,
-                    finalState: finalCtx.state as "done" | "failed",
+                    finalState: finalCtx.state as
+                      | "done"
+                      | "failed"
+                      | "manual_handoff",
                     elapsedMs,
                     prNumber: finalCtx.prNumber,
                   });
@@ -388,7 +455,7 @@ export function createCli() {
                 logger.error("Worktree cleanup failed", {
                   path: worktreePath,
                   error: String(err),
-                })
+                }),
               );
             }
           };
@@ -397,7 +464,7 @@ export function createCli() {
             logger.error("Run failed", {
               issue: issue.number,
               error: String(err),
-            })
+            }),
           );
         }
       };
@@ -421,11 +488,7 @@ export function createCli() {
     .description("Show status of a run")
     .argument("<run-id>", "Run ID")
     .action(async (runId) => {
-      const baseDir = join(
-        process.env.HOME ?? "~",
-        ".devloop",
-        "runs"
-      );
+      const baseDir = join(process.env.HOME ?? "~", ".devloop", "runs");
       const persistence = createFilePersistence(baseDir);
       const ctx = await persistence.load(runId);
       if (!ctx) {

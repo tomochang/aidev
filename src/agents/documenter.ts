@@ -10,7 +10,7 @@ export interface DocumenterInput {
 
 export async function runDocumenter(
   input: DocumenterInput,
-  logger: Logger
+  logger: Logger,
 ): Promise<void> {
   const { result, cwd } = input;
 

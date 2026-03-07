@@ -67,7 +67,13 @@ describe("watch command", () => {
   it("calls runWorkflow directly instead of execaCommand for each new issue", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 42, title: "Test issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 42,
+          title: "Test issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -92,7 +98,7 @@ describe("watch command", () => {
     let intervalId: ReturnType<typeof setInterval> | undefined;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       intervalId = originalSetInterval(() => {}, ms);
       return intervalId;
@@ -133,7 +139,7 @@ describe("watch command", () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(
       new URL("../src/cli.ts", import.meta.url),
-      "utf-8"
+      "utf-8",
     );
 
     // The watch command block should not contain execaCommand or spawn via 'devloop' CLI
@@ -143,7 +149,7 @@ describe("watch command", () => {
     const watchSection = source.slice(watchStart, watchEnd);
 
     expect(watchSection).not.toContain("execaCommand");
-    expect(watchSection).not.toContain("import(\"execa\")");
+    expect(watchSection).not.toContain('import("execa")');
     expect(watchSection).not.toContain("import('execa')");
     // Should not spawn 'devloop' as a subprocess command
     expect(watchSection).not.toMatch(/devloop\s+run/);
@@ -152,7 +158,13 @@ describe("watch command", () => {
   it("logs errors from runWorkflow without crashing the watcher", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 99, title: "Failing issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 99,
+          title: "Failing issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -171,7 +183,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -198,8 +210,20 @@ describe("watch command", () => {
   it("creates unique runIds for each issue", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 10, title: "Issue 10", body: "body", labels: ["ai:run"], author: "testuser" },
-        { number: 20, title: "Issue 20", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 10,
+          title: "Issue 10",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
+        {
+          number: 20,
+          title: "Issue 20",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -221,7 +245,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -254,8 +278,20 @@ describe("watch command", () => {
   it("passes a unique worktree cwd to each issue's runWorkflow", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 10, title: "Issue 10", body: "body", labels: ["ai:run"], author: "testuser" },
-        { number: 20, title: "Issue 20", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 10,
+          title: "Issue 10",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
+        {
+          number: 20,
+          title: "Issue 20",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -277,7 +313,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -309,7 +345,13 @@ describe("watch command", () => {
   it("cleans up worktree after successful runWorkflow", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 42, title: "Test issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 42,
+          title: "Test issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -331,7 +373,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -356,7 +398,13 @@ describe("watch command", () => {
   it("cleans up worktree after failed runWorkflow", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 99, title: "Failing issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 99,
+          title: "Failing issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -375,7 +423,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -401,7 +449,13 @@ describe("watch command", () => {
   it("does not crash when worktree creation fails", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 55, title: "WT fail issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 55,
+          title: "WT fail issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -425,7 +479,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -451,7 +505,13 @@ describe("watch command", () => {
   it("passes --base option to addWorktree and RunContext", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 42, title: "Test issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 42,
+          title: "Test issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -473,7 +533,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -506,7 +566,13 @@ describe("watch command", () => {
   it("defaults base to 'main' when --base is not specified", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 42, title: "Test issue", body: "body", labels: ["ai:run"], author: "testuser" },
+        {
+          number: 42,
+          title: "Test issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "testuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "testuser"),
@@ -528,7 +594,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);
@@ -559,8 +625,20 @@ describe("watch command", () => {
   it("skips foreign issues with warning log in watch mode", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
-        { number: 42, title: "Foreign issue", body: "body", labels: ["ai:run"], author: "foreignuser" },
-        { number: 43, title: "Own issue", body: "body", labels: ["ai:run"], author: "myuser" },
+        {
+          number: 42,
+          title: "Foreign issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "foreignuser",
+        },
+        {
+          number: 43,
+          title: "Own issue",
+          body: "body",
+          labels: ["ai:run"],
+          author: "myuser",
+        },
       ]),
       getIssue: vi.fn(),
       getAuthenticatedUser: vi.fn(async () => "myuser"),
@@ -582,7 +660,7 @@ describe("watch command", () => {
     const originalSetInterval = global.setInterval;
     vi.spyOn(global, "setInterval").mockImplementation(((
       fn: Function,
-      ms: number
+      ms: number,
     ) => {
       return originalSetInterval(() => {}, ms);
     }) as any);

@@ -58,4 +58,42 @@ describe("mergeConfigs", () => {
 
     expect(result).toEqual({});
   });
+
+  it("deep-merges stateTimeouts (issue overrides repo per-state)", () => {
+    const repo: Partial<IssueConfig> = {
+      stateTimeouts: { planning: 30000, implementing: 600000 },
+    };
+    const issue: Partial<IssueConfig> = {
+      stateTimeouts: { planning: 60000 },
+    };
+
+    const result = mergeConfigs(repo, issue, new Set());
+
+    expect(result.stateTimeouts).toEqual({
+      planning: 60000,
+      implementing: 600000,
+    });
+  });
+
+  it("uses repo stateTimeouts when issue has none", () => {
+    const repo: Partial<IssueConfig> = {
+      stateTimeouts: { planning: 30000 },
+    };
+    const issue: Partial<IssueConfig> = {};
+
+    const result = mergeConfigs(repo, issue, new Set());
+
+    expect(result.stateTimeouts).toEqual({ planning: 30000 });
+  });
+
+  it("uses issue stateTimeouts when repo has none", () => {
+    const repo: Partial<IssueConfig> = {};
+    const issue: Partial<IssueConfig> = {
+      stateTimeouts: { implementing: 600000 },
+    };
+
+    const result = mergeConfigs(repo, issue, new Set());
+
+    expect(result.stateTimeouts).toEqual({ implementing: 600000 });
+  });
 });

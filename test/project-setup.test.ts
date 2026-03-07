@@ -30,9 +30,7 @@ describe(".gitignore", () => {
 });
 
 describe("package.json", () => {
-  const pkg = JSON.parse(
-    readFileSync(resolve(root, "package.json"), "utf-8")
-  );
+  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));
 
   it('has license field set to "MIT"', () => {
     expect(pkg.license).toBe("MIT");

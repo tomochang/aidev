@@ -182,7 +182,7 @@ describe("init handler", () => {
     expect(deps.git.createBranch).toHaveBeenCalledWith(
       ctx.branch,
       "v1.2.0",
-      ctx.cwd
+      ctx.cwd,
     );
   });
 
@@ -196,7 +196,7 @@ describe("init handler", () => {
     expect(deps.git.createBranch).toHaveBeenCalledWith(
       ctx.branch,
       "main",
-      ctx.cwd
+      ctx.cwd,
     );
   });
 
@@ -285,7 +285,7 @@ describe("init handler", () => {
     expect(deps.git.createBranch).toHaveBeenCalledWith(
       ctx.branch,
       "release/2.0",
-      ctx.cwd
+      ctx.cwd,
     );
     expect(result.ctx.base).toBe("release/2.0");
   });
@@ -328,7 +328,10 @@ describe("init handler", () => {
 
   it("issue config overrides repo config", async () => {
     const deps = makeDeps({
-      loadRepoConfig: vi.fn(async () => ({ base: "develop", maxFixAttempts: 10 })),
+      loadRepoConfig: vi.fn(async () => ({
+        base: "develop",
+        maxFixAttempts: 10,
+      })),
       github: {
         getIssue: vi.fn(async () => ({
           number: 1,
@@ -362,7 +365,10 @@ describe("init handler", () => {
       },
     });
     const handlers = createStateHandlers(deps);
-    const ctx = makeCtx({ base: "cli-branch", _cliExplicit: new Set(["base"]) });
+    const ctx = makeCtx({
+      base: "cli-branch",
+      _cliExplicit: new Set(["base"]),
+    });
 
     const result = await handlers.init!(ctx);
 
@@ -440,7 +446,7 @@ describe("init handler", () => {
     expect(deps.git.createBranch).toHaveBeenCalledWith(
       "feat/head",
       "origin/feat/head",
-      ctx.cwd
+      ctx.cwd,
     );
     expect(deps.github.updateIssueBody).not.toHaveBeenCalled();
   });
@@ -687,7 +693,7 @@ describe("committing handler", () => {
 
     expect(runDocumenter).toHaveBeenCalledWith(
       { result, cwd: "/my/repo" },
-      deps.logger
+      deps.logger,
     );
   });
 
@@ -717,7 +723,7 @@ describe("committing handler", () => {
     const ctx = makeCtx({ state: "committing" });
 
     await expect(handlers.committing!(ctx)).rejects.toThrow(
-      "No result available"
+      "No result available",
     );
   });
 
@@ -829,7 +835,7 @@ describe("creating_pr handler", () => {
     await handlers.creating_pr!(ctx);
 
     expect(createPr).toHaveBeenCalledWith(
-      expect.objectContaining({ base: "release/1.3" })
+      expect.objectContaining({ base: "release/1.3" }),
     );
   });
 
@@ -845,7 +851,7 @@ describe("creating_pr handler", () => {
     await handlers.creating_pr!(ctx);
 
     expect(createPr).toHaveBeenCalledWith(
-      expect.objectContaining({ base: "main" })
+      expect.objectContaining({ base: "main" }),
     );
   });
 

@@ -142,9 +142,7 @@ describe("GitHubAdapter", () => {
 
     it("returns pending when checks are in progress", async () => {
       mockExeca.mockResolvedValue({
-        stdout: JSON.stringify([
-          { status: "in_progress", conclusion: null },
-        ]),
+        stdout: JSON.stringify([{ status: "in_progress", conclusion: null }]),
       } as any);
 
       const status = await gh.getCiStatus("feature/x");
@@ -273,7 +271,10 @@ describe("GitHubAdapter", () => {
       mockExeca.mockResolvedValueOnce({
         stdout: JSON.stringify([{ databaseId: 99 }]),
       } as any);
-      const longLog = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
+      const longLog = Array.from(
+        { length: 300 },
+        (_, i) => `line ${i + 1}`,
+      ).join("\n");
       mockExeca.mockResolvedValueOnce({
         stdout: longLog,
       } as any);
@@ -291,8 +292,20 @@ describe("GitHubAdapter", () => {
     it("returns issues with label and author", async () => {
       mockExeca.mockResolvedValue({
         stdout: JSON.stringify([
-          { number: 1, title: "A", body: "a", labels: [{ name: "ai:run" }], author: { login: "user1" } },
-          { number: 2, title: "B", body: "b", labels: [{ name: "ai:run" }], author: { login: "user2" } },
+          {
+            number: 1,
+            title: "A",
+            body: "a",
+            labels: [{ name: "ai:run" }],
+            author: { login: "user1" },
+          },
+          {
+            number: 2,
+            title: "B",
+            body: "b",
+            labels: [{ name: "ai:run" }],
+            author: { login: "user2" },
+          },
         ]),
       } as any);
 

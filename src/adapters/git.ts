@@ -41,7 +41,7 @@ export function createGitAdapter(): GitAdapter {
       const { stdout } = await execa(
         "git",
         ["rev-parse", "--abbrev-ref", "HEAD"],
-        { cwd }
+        { cwd },
       );
       return stdout.trim();
     },

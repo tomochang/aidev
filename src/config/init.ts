@@ -28,7 +28,9 @@ export async function writeAidevYml(
   if (!force) {
     try {
       await access(filePath);
-      throw new Error(`.aidev.yml already exists at ${filePath}. Use --force to overwrite.`);
+      throw new Error(
+        `.aidev.yml already exists at ${filePath}. Use --force to overwrite.`,
+      );
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }

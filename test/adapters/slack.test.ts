@@ -52,19 +52,29 @@ describe("formatSlackMessage", () => {
 
   it("formats elapsed time in human-readable form", () => {
     expect(formatSlackMessage({ ...baseInput, elapsedMs: 65_000 })).toContain(
-      "1m 5s"
+      "1m 5s",
     );
-    expect(formatSlackMessage({ ...baseInput, elapsedMs: 3_661_000 })).toContain(
-      "1h 1m"
-    );
+    expect(
+      formatSlackMessage({ ...baseInput, elapsedMs: 3_661_000 }),
+    ).toContain("1h 1m");
     expect(formatSlackMessage({ ...baseInput, elapsedMs: 45_000 })).toContain(
-      "45s"
+      "45s",
     );
   });
 
   it("uses issue number as title fallback", () => {
     const msg = formatSlackMessage({ ...baseInput, issueTitle: undefined });
     expect(msg).toContain("Issue #42");
+  });
+
+  it("formats a manual_handoff message with distinct icon", () => {
+    const msg = formatSlackMessage({
+      ...baseInput,
+      finalState: "manual_handoff",
+    });
+    expect(msg).toContain("manual handoff");
+    expect(msg).not.toContain(":white_check_mark:");
+    expect(msg).not.toContain(":x:");
   });
 });
 
@@ -80,7 +90,9 @@ describe("createSlackNotifier", () => {
   });
 
   it("sends to webhook URL when configured", async () => {
-    const notifier = createSlackNotifier({ webhookUrl: "https://hooks.slack.com/test" });
+    const notifier = createSlackNotifier({
+      webhookUrl: "https://hooks.slack.com/test",
+    });
     await notifier("test message");
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -88,7 +100,7 @@ describe("createSlackNotifier", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ text: "test message" }),
-      })
+      }),
     );
   });
 
@@ -107,7 +119,7 @@ describe("createSlackNotifier", () => {
           Authorization: "Bearer xoxb-test-token",
         }),
         body: JSON.stringify({ channel: "C12345", text: "test message" }),
-      })
+      }),
     );
   });
 
@@ -126,7 +138,9 @@ describe("createSlackNotifier", () => {
     globalThis.fetch = vi.fn(async () => {
       throw new Error("Network error");
     });
-    const notifier = createSlackNotifier({ webhookUrl: "https://hooks.slack.com/test" });
+    const notifier = createSlackNotifier({
+      webhookUrl: "https://hooks.slack.com/test",
+    });
 
     // Should not throw
     await expect(notifier("test message")).resolves.toBeUndefined();

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseIssueConfig, type IssueConfig } from "../../src/config/issue-config.js";
+import {
+  parseIssueConfig,
+  type IssueConfig,
+} from "../../src/config/issue-config.js";
 
 describe("parseIssueConfig", () => {
   it("returns empty config when body has no aidev block", () => {
@@ -101,13 +104,15 @@ describe("parseIssueConfig", () => {
   });
 
   it("only extracts the first aidev block", () => {
-    const body = "```aidev\nmaxFixAttempts: 5\n```\n\n```aidev\nmaxFixAttempts: 10\n```";
+    const body =
+      "```aidev\nmaxFixAttempts: 5\n```\n\n```aidev\nmaxFixAttempts: 10\n```";
     const result = parseIssueConfig(body);
     expect(result.maxFixAttempts).toBe(5);
   });
 
   it("does not confuse other code blocks", () => {
-    const body = "```yaml\nmaxFixAttempts: 99\n```\n\n```aidev\nmaxFixAttempts: 3\n```";
+    const body =
+      "```yaml\nmaxFixAttempts: 99\n```\n\n```aidev\nmaxFixAttempts: 3\n```";
     const result = parseIssueConfig(body);
     expect(result.maxFixAttempts).toBe(3);
   });
@@ -116,5 +121,28 @@ describe("parseIssueConfig", () => {
     const body = "```aidev\nskip:\n  - documenter\n```";
     const result = parseIssueConfig(body);
     expect(result.skip).toEqual(["documenter"]);
+  });
+
+  it("parses stateTimeouts from list of 'state: ms' entries", () => {
+    const body =
+      "```aidev\nstateTimeouts:\n  - planning: 30000\n  - implementing: 600000\n```";
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toEqual({
+      planning: 30000,
+      implementing: 600000,
+    });
+  });
+
+  it("ignores malformed stateTimeouts entries", () => {
+    const body =
+      "```aidev\nstateTimeouts:\n  - planning: 30000\n  - bad entry\n  - implementing: abc\n```";
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toEqual({ planning: 30000 });
+  });
+
+  it("omits stateTimeouts when no valid entries", () => {
+    const body = "```aidev\nstateTimeouts:\n  - bad entry\n```";
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toBeUndefined();
   });
 });

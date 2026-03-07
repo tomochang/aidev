@@ -1,6 +1,12 @@
 import { query } from "@anthropic-ai/claude-code";
 import { ResultSchema, type Plan, type Result } from "../types.js";
-import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
+import {
+  createSafetyHook,
+  extractJson,
+  getBaseSdkOptions,
+  streamAgentResponse,
+  wrapUntrustedContent,
+} from "./shared.js";
 import type { Logger } from "../util/logger.js";
 
 export interface ImplementerInput {
@@ -12,7 +18,7 @@ export interface ImplementerInput {
 
 export async function runImplementer(
   input: ImplementerInput,
-  logger: Logger
+  logger: Logger,
 ): Promise<Result> {
   const label = input.workItemKind === "pr" ? "PR" : "issue";
   const relatedLine =

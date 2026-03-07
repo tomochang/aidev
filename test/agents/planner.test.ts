@@ -10,12 +10,15 @@ vi.mock("@anthropic-ai/claude-code", () => ({
 }));
 
 vi.mock("../../src/agents/shared.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/agents/shared.js")>();
+  const actual =
+    await importOriginal<typeof import("../../src/agents/shared.js")>();
   return {
     ...actual,
     createSafetyHook: () => ({ command: "true" }),
     extractJson: mockExtractJson,
-    getBaseSdkOptions: () => ({ pathToClaudeCodeExecutable: "/usr/bin/claude" }),
+    getBaseSdkOptions: () => ({
+      pathToClaudeCodeExecutable: "/usr/bin/claude",
+    }),
   };
 });
 
@@ -49,7 +52,7 @@ function setupMocks(plan?: Record<string, unknown>) {
       risks: [],
       acceptanceCriteria: [],
       investigation: "test",
-    }
+    },
   );
 
   return () => capturedPrompt;
@@ -64,8 +67,11 @@ describe("runPlanner prompt", () => {
     const getPrompt = setupMocks();
 
     await runPlanner(
-      { issue: { number: 1, title: "Test", body: "body", labels: [] }, cwd: "/tmp" },
-      noopLogger as any
+      {
+        issue: { number: 1, title: "Test", body: "body", labels: [] },
+        cwd: "/tmp",
+      },
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
@@ -79,12 +85,22 @@ describe("runPlanner prompt", () => {
     const getPrompt = setupMocks();
 
     await runPlanner(
-      { issue: { number: 42, title: "Add feature X", body: "Details here", labels: [] }, cwd: "/tmp" },
-      noopLogger as any
+      {
+        issue: {
+          number: 42,
+          title: "Add feature X",
+          body: "Details here",
+          labels: [],
+        },
+        cwd: "/tmp",
+      },
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
-    expect(capturedPrompt).toContain('<untrusted-content source="issue-title">');
+    expect(capturedPrompt).toContain(
+      '<untrusted-content source="issue-title">',
+    );
     expect(capturedPrompt).toContain("Add feature X");
   });
 
@@ -92,8 +108,16 @@ describe("runPlanner prompt", () => {
     const getPrompt = setupMocks();
 
     await runPlanner(
-      { issue: { number: 42, title: "Title", body: "Issue body content", labels: [] }, cwd: "/tmp" },
-      noopLogger as any
+      {
+        issue: {
+          number: 42,
+          title: "Title",
+          body: "Issue body content",
+          labels: [],
+        },
+        cwd: "/tmp",
+      },
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
@@ -106,11 +130,13 @@ describe("runPlanner prompt", () => {
 
     await runPlanner(
       { issue: { number: 1, title: "T", body: "B", labels: [] }, cwd: "/tmp" },
-      noopLogger as any
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
-    expect(capturedPrompt).toMatch(/untrusted-content.*data|data.*untrusted-content/is);
+    expect(capturedPrompt).toMatch(
+      /untrusted-content.*data|data.*untrusted-content/is,
+    );
   });
 
   it("does not raw-interpolate issue title outside delimiter tags", async () => {
@@ -119,12 +145,14 @@ describe("runPlanner prompt", () => {
 
     await runPlanner(
       { issue: { number: 1, title, body: "body", labels: [] }, cwd: "/tmp" },
-      noopLogger as any
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
     // Title should only appear inside the untrusted-content tags
-    const parts = capturedPrompt.split('<untrusted-content source="issue-title">');
+    const parts = capturedPrompt.split(
+      '<untrusted-content source="issue-title">',
+    );
     // Before the tag, the title should not appear
     expect(parts[0]).not.toContain(title);
   });

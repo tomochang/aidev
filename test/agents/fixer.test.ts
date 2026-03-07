@@ -10,12 +10,15 @@ vi.mock("@anthropic-ai/claude-code", () => ({
 }));
 
 vi.mock("../../src/agents/shared.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/agents/shared.js")>();
+  const actual =
+    await importOriginal<typeof import("../../src/agents/shared.js")>();
   return {
     ...actual,
     createSafetyHook: () => ({ command: "true" }),
     extractJson: mockExtractJson,
-    getBaseSdkOptions: () => ({ pathToClaudeCodeExecutable: "/usr/bin/claude" }),
+    getBaseSdkOptions: () => ({
+      pathToClaudeCodeExecutable: "/usr/bin/claude",
+    }),
   };
 });
 
@@ -69,7 +72,7 @@ describe("runFixer prompt", () => {
 
     await runFixer(
       { plan: samplePlan, ciLog: "Error: test failed at line 42", cwd: "/tmp" },
-      noopLogger as any
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
@@ -83,7 +86,7 @@ describe("runFixer prompt", () => {
 
     await runFixer(
       { plan: samplePlan, ciLog: "some log", cwd: "/tmp" },
-      noopLogger as any
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
@@ -95,10 +98,12 @@ describe("runFixer prompt", () => {
 
     await runFixer(
       { plan: samplePlan, ciLog: "log", cwd: "/tmp" },
-      noopLogger as any
+      noopLogger as any,
     );
 
     const capturedPrompt = getPrompt();
-    expect(capturedPrompt).toMatch(/untrusted-content.*data|data.*untrusted-content/is);
+    expect(capturedPrompt).toMatch(
+      /untrusted-content.*data|data.*untrusted-content/is,
+    );
   });
 });

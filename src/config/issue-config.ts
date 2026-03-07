@@ -11,6 +11,7 @@ const IssueConfigSchema = z
     dryRun: z.boolean().optional(),
     base: z.string().optional(),
     skip: z.array(SkippableStateSchema).optional(),
+    stateTimeouts: z.record(z.string(), z.number()).optional(),
   })
   .strict();
 
@@ -22,6 +23,7 @@ export interface ResolvedConfig {
   dryRun: boolean;
   base: string;
   skip: SkippableState[];
+  stateTimeouts?: Record<string, number>;
 }
 
 /**
@@ -127,9 +129,21 @@ export function parseConfigBlock(block: string): Partial<IssueConfig> {
 
   if (Array.isArray(raw.skip)) {
     const valid = raw.skip.filter(
-      (s) => SkippableStateSchema.safeParse(s).success
+      (s) => SkippableStateSchema.safeParse(s).success,
     );
     if (valid.length > 0) obj.skip = valid;
+  }
+
+  // stateTimeouts: list of "state: ms" entries
+  if (Array.isArray(raw.stateTimeouts)) {
+    const timeouts: Record<string, number> = {};
+    for (const entry of raw.stateTimeouts) {
+      const match = entry.match(/^(\w+)\s*:\s*(\d+)$/);
+      if (match) {
+        timeouts[match[1]!] = Number(match[2]);
+      }
+    }
+    if (Object.keys(timeouts).length > 0) obj.stateTimeouts = timeouts;
   }
 
   return obj;
