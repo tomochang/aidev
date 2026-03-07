@@ -12,6 +12,7 @@ import { runDocumenter } from "./agents/documenter.js";
 import { createSlackNotifier, formatSlackMessage } from "./adapters/slack.js";
 import { loadRepoConfig } from "./config/repo-config.js";
 import { writeAidevYml } from "./config/init.js";
+import { runPreflightChecks } from "./preflight.js";
 import type { RunContext } from "./types.js";
 
 function createFilePersistence(baseDir: string): Persistence {
@@ -208,6 +209,8 @@ export function createCli() {
             logger.info("Non-interactive mode: skipping confirmation (use --yes to suppress this message)");
           }
         }
+
+        await runPreflightChecks(cwd);
 
         // Track which flags were explicitly set via CLI
         const cliExplicit = new Set<string>();
