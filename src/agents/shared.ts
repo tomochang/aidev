@@ -4,8 +4,10 @@ import type {
   HookCallback,
   HookCallbackMatcher,
   Options,
+  SDKMessage,
   SyncHookJSONOutput,
 } from "@anthropic-ai/claude-code";
+import type { Logger } from "../util/logger.js";
 
 const DANGEROUS_BASH_PATTERNS = [
   /\bgit\s+push\b/,
@@ -131,4 +133,68 @@ export function getBaseSdkOptions(): Pick<Options, "pathToClaudeCodeExecutable" 
     pathToClaudeCodeExecutable: executable,
     env: cleanEnvForSdk(),
   };
+}
+
+export interface StreamAgentResponseOptions {
+  agentName: string;
+  logger: Logger;
+  noOutputTimeoutMs?: number;
+  onMessage?: (message: SDKMessage) => void;
+}
+
+async function nextWithWatchdog<T>(
+  iterator: AsyncIterator<T>,
+  logger: Logger,
+  agentName: string,
+  noOutputTimeoutMs: number
+): Promise<IteratorResult<T>> {
+  if (noOutputTimeoutMs <= 0) {
+    return iterator.next();
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      iterator.next(),
+      new Promise<IteratorResult<T>>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const message = `${agentName} emitted no output for ${noOutputTimeoutMs}ms`;
+          logger.warn("Agent watchdog triggered", {
+            agentName,
+            noOutputTimeoutMs,
+          });
+          reject(new Error(message));
+        }, noOutputTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+export async function streamAgentResponse(
+  response: AsyncIterable<SDKMessage>,
+  options: StreamAgentResponseOptions
+): Promise<SDKMessage | undefined> {
+  const iterator = response[Symbol.asyncIterator]();
+  const timeoutMs = options.noOutputTimeoutMs ?? 30_000;
+  let successMessage: SDKMessage | undefined;
+
+  while (true) {
+    const next = await nextWithWatchdog(iterator, options.logger, options.agentName, timeoutMs);
+    if (next.done) {
+      break;
+    }
+
+    const message = next.value;
+    options.onMessage?.(message);
+
+    if (message.type === "result" && message.subtype === "success") {
+      successMessage = message;
+    }
+  }
+
+  return successMessage;
 }

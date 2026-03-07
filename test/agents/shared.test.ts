@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import { blockDangerousOps, cleanEnvForSdk, extractJson, getBaseSdkOptions, findClaudeExecutable, wrapUntrustedContent } from "../../src/agents/shared.js";
+import {
+  blockDangerousOps,
+  cleanEnvForSdk,
+  extractJson,
+  getBaseSdkOptions,
+  findClaudeExecutable,
+  streamAgentResponse,
+  wrapUntrustedContent,
+} from "../../src/agents/shared.js";
 
 describe("blockDangerousOps", () => {
   describe("Bash tool", () => {
@@ -248,6 +256,67 @@ describe("blockDangerousOps", () => {
     it("allows Glob tool", async () => {
       const result = await blockDangerousOps("Glob", { pattern: "**/*.ts" });
       expect(result.decision).toBeUndefined();
+    });
+  });
+});
+
+describe("streamAgentResponse", () => {
+  const logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+
+  it("throws when no output arrives before the watchdog deadline", async () => {
+    const response = (async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      yield {
+        type: "result" as const,
+        subtype: "success" as const,
+        result: "{}",
+      };
+    })();
+
+    await expect(
+      streamAgentResponse(response, {
+        logger: logger as any,
+        agentName: "Planner",
+        noOutputTimeoutMs: 5,
+      })
+    ).rejects.toThrow(/Planner.*no output/i);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Agent watchdog triggered",
+      expect.objectContaining({
+        agentName: "Planner",
+        noOutputTimeoutMs: 5,
+      })
+    );
+  });
+
+  it("does not fire the watchdog when messages keep arriving", async () => {
+    const response = (async function* () {
+      yield {
+        type: "assistant" as const,
+        message: { id: "msg_1" },
+      };
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      yield {
+        type: "result" as const,
+        subtype: "success" as const,
+        result: '{"ok":true}',
+      };
+    })();
+
+    const result = await streamAgentResponse(response, {
+      logger: logger as any,
+      agentName: "Planner",
+      noOutputTimeoutMs: 20,
+    });
+
+    expect(result).toMatchObject({
+      type: "result",
+      subtype: "success",
+      result: '{"ok":true}',
     });
   });
 });

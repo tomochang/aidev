@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-code";
 import { ResultSchema, type Plan, type Result } from "../types.js";
-import { createSafetyHook, extractJson, getBaseSdkOptions, wrapUntrustedContent } from "./shared.js";
+import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
 import type { Logger } from "../util/logger.js";
 
 export interface ImplementerInput {
@@ -73,12 +73,14 @@ Output ONLY valid JSON, no markdown fences.`;
     },
   });
 
-  let resultText = "";
-  for await (const message of response) {
-    if (message.type === "result" && message.subtype === "success") {
-      resultText = message.result;
-    }
-  }
+  const successMessage = await streamAgentResponse(response, {
+    agentName: "Implementer",
+    logger,
+  });
+  const resultText =
+    successMessage?.type === "result" && successMessage.subtype === "success"
+      ? successMessage.result
+      : "";
 
   const parsed = extractJson(resultText, "Implementer");
   return ResultSchema.parse(parsed);
