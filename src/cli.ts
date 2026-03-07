@@ -143,8 +143,7 @@ export function createCli() {
 
       let ctx: RunContext;
 
-      const preflightCwd = opts.cwd;
-      await runPreflightChecks(preflightCwd);
+      await runPreflightChecks();
 
       if (opts.resume) {
         const saved =

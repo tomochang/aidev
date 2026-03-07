@@ -82,7 +82,8 @@ describe("run command preflight", () => {
       "-y",
     ]);
 
-    expect(mockRunPreflightChecks).toHaveBeenCalledWith("/tmp/repo");
+    expect(mockRunPreflightChecks).toHaveBeenCalledOnce();
+    expect(mockRunPreflightChecks).toHaveBeenCalledWith();
   });
 
   it("runs preflight checks before resuming a saved workflow", async () => {
@@ -127,6 +128,7 @@ describe("run command preflight", () => {
       "-y",
     ]);
 
-    expect(mockRunPreflightChecks).toHaveBeenCalledWith("/tmp/repo");
+    expect(mockRunPreflightChecks).toHaveBeenCalledOnce();
+    expect(mockRunPreflightChecks).toHaveBeenCalledWith();
   });
 });

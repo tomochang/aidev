@@ -12,7 +12,7 @@ async function requireCommand(
   }
 }
 
-export async function runPreflightChecks(_cwd?: string): Promise<void> {
+export async function runPreflightChecks(): Promise<void> {
   const claudeExecutable = findClaudeExecutable();
   if (!claudeExecutable) {
     throw new Error(
