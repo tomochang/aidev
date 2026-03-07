@@ -258,14 +258,25 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       });
       return transition(ctx, "watching_ci", { prNumber: ctx.prNumber });
     }
-    await git.push(ctx.branch, ctx.cwd);
+
+    // Validate that branch has commits vs base before pushing
+    const hasCommits = await git.hasCommitsVsBase(ctx.branch, ctx.base, ctx.cwd);
+    if (!hasCommits) {
+      throw new Error(
+        `No commits between ${ctx.base} and ${ctx.branch}. ` +
+        `Check that changes were committed to the correct repository (cwd: ${ctx.cwd}).`,
+      );
+    }
+
+    const pushResult = await git.push(ctx.branch, ctx.cwd);
     const prNumber = await github.createPr({
       title: ctx.result.commitMessageDraft.split("\n")[0]!,
       body: ctx.result.prBodyDraft,
       head: ctx.branch,
       base: ctx.base,
+      forkOwner: pushResult.forkOwner,
     });
-    logger.info("PR created", { prNumber });
+    logger.info("PR created", { prNumber, remote: pushResult.remote });
     return transition(ctx, "watching_ci", { prNumber });
   };
 

@@ -22,6 +22,7 @@ export interface CreatePrOpts {
   body: string;
   head: string;
   base: string;
+  forkOwner?: string;
 }
 
 export type CiStatus = "passing" | "failing" | "pending" | "no_checks";
@@ -114,6 +115,9 @@ export function createGitHubAdapter(repo: string): GitHubAdapter {
     },
 
     async createPr(opts) {
+      const headRef = opts.forkOwner
+        ? `${opts.forkOwner}:${opts.head}`
+        : opts.head;
       const { stdout } = await execa("gh", [
         "pr",
         "create",
@@ -124,7 +128,7 @@ export function createGitHubAdapter(repo: string): GitHubAdapter {
         "--body",
         opts.body,
         "--head",
-        opts.head,
+        headRef,
         "--base",
         opts.base,
       ]);

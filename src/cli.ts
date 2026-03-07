@@ -1,8 +1,9 @@
 import { Command } from "commander";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { execaSync } from "execa";
 import { createGitAdapter } from "./adapters/git.js";
 import {
   createGitHubAdapter,
@@ -109,8 +110,37 @@ function createFilePersistence(baseDir: string): Persistence {
 }
 
 function detectRepo(cwd: string): string {
-  // Try to detect from git remote, fallback to env
-  return process.env.DEVLOOP_REPO ?? "mizumura3/inko";
+  if (process.env.DEVLOOP_REPO) return process.env.DEVLOOP_REPO;
+  try {
+    const { stdout } = execaSync("git", ["remote", "get-url", "origin"], {
+      cwd,
+    });
+    const match = stdout.trim().match(/github\.com[/:]([^/]+\/[^/.]+)/);
+    if (match) return match[1]!;
+  } catch {}
+  return "mizumura3/inko";
+}
+
+/**
+ * Resolve the git working directory for a given repo.
+ * When cwd contains a submodule whose origin matches repo, return the submodule path.
+ */
+function resolveRepoCwd(cwd: string, repo: string): string {
+  try {
+    const { stdout } = execaSync("git", ["submodule", "foreach", "--quiet", "echo $sm_path $(git remote get-url origin 2>/dev/null)"], { cwd });
+    for (const line of stdout.trim().split("\n")) {
+      if (!line) continue;
+      const spaceIdx = line.indexOf(" ");
+      if (spaceIdx === -1) continue;
+      const smPath = line.slice(0, spaceIdx);
+      const url = line.slice(spaceIdx + 1);
+      if (url.includes(repo) || url.includes(repo.replace("/", ":"))) {
+        const resolved = resolve(cwd, smPath);
+        return resolved;
+      }
+    }
+  } catch {}
+  return cwd;
 }
 
 export function createCli() {
@@ -202,8 +232,8 @@ export function createCli() {
       });
     } else {
       const runId = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
-      const cwd = opts.cwd;
-      const repo = opts.repo ?? detectRepo(cwd);
+      const repo = opts.repo ?? detectRepo(opts.cwd);
+      const cwd = resolveRepoCwd(opts.cwd, repo);
       const ghForConfirm = createGitHubAdapter(repo);
 
       let issue: Issue | undefined;

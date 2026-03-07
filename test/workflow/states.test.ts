@@ -56,9 +56,12 @@ function makeDeps(overrides?: {
     createBranch: vi.fn(async () => {}),
     addAll: vi.fn(async () => {}),
     commit: vi.fn(async () => {}),
-    push: vi.fn(async () => {}),
+    push: vi.fn(async () => ({ remote: "origin" })),
     diff: vi.fn(async () => ""),
     currentBranch: vi.fn(async () => "main"),
+    hasCommitsVsBase: vi.fn(async () => true),
+    addWorktree: vi.fn(async () => {}),
+    removeWorktree: vi.fn(async () => {}),
     ...overrides?.git,
   };
   const github: GitHubAdapter = {
@@ -873,6 +876,39 @@ describe("creating_pr handler", () => {
     expect(deps.git.push).toHaveBeenCalledWith("feat/taka-qa-flow", ctx.cwd);
     expect(createPr).not.toHaveBeenCalled();
     expect(next.ctx.prNumber).toBe(5);
+    expect(next.nextState).toBe("watching_ci");
+  });
+
+  it("throws when branch has no commits vs base", async () => {
+    const deps = makeDeps({
+      git: { hasCommitsVsBase: vi.fn(async () => false) },
+    });
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "creating_pr", result });
+
+    await expect(handlers.creating_pr!(ctx)).rejects.toThrow(
+      /No commits between main and/,
+    );
+    expect(deps.git.push).not.toHaveBeenCalled();
+  });
+
+  it("passes forkOwner to createPr when push falls back to fork", async () => {
+    const createPr = vi.fn(async () => 99);
+    const deps = makeDeps({
+      git: {
+        push: vi.fn(async () => ({ remote: "fork", forkOwner: "tomochang" })),
+      },
+      github: { createPr },
+    });
+    const handlers = createStateHandlers(deps);
+    const ctx = makeCtx({ state: "creating_pr", result });
+
+    const next = await handlers.creating_pr!(ctx);
+
+    expect(createPr).toHaveBeenCalledWith(
+      expect.objectContaining({ forkOwner: "tomochang" }),
+    );
+    expect(next.ctx.prNumber).toBe(99);
     expect(next.nextState).toBe("watching_ci");
   });
 });
