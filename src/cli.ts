@@ -143,6 +143,9 @@ export function createCli() {
 
       let ctx: RunContext;
 
+      const preflightCwd = opts.cwd;
+      await runPreflightChecks(preflightCwd);
+
       if (opts.resume) {
         const saved =
           targetKind === "pr"
@@ -209,8 +212,6 @@ export function createCli() {
             logger.info("Non-interactive mode: skipping confirmation (use --yes to suppress this message)");
           }
         }
-
-        await runPreflightChecks(cwd);
 
         // Track which flags were explicitly set via CLI
         const cliExplicit = new Set<string>();
