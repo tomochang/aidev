@@ -1,6 +1,6 @@
-import { query, type SDKMessage } from "@anthropic-ai/claude-code";
+import { query } from "@anthropic-ai/claude-code";
 import { PlanSchema, type Plan } from "../types.js";
-import { createSafetyHook, extractJson, getBaseSdkOptions, wrapUntrustedContent } from "./shared.js";
+import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
 import type { Issue } from "../adapters/github.js";
 import type { Logger } from "../util/logger.js";
 
@@ -47,12 +47,14 @@ Your final message must contain ONLY the JSON object, nothing else.`;
     },
   });
 
-  let resultText = "";
-  for await (const message of response) {
-    if (message.type === "result" && message.subtype === "success") {
-      resultText = message.result;
-    }
-  }
+  const successMessage = await streamAgentResponse(response, {
+    agentName: "Planner",
+    logger,
+  });
+  const resultText =
+    successMessage?.type === "result" && successMessage.subtype === "success"
+      ? successMessage.result
+      : "";
 
   logger.info("Planner response", { length: resultText.length });
 

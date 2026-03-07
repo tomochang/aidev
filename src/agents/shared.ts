@@ -4,8 +4,10 @@ import type {
   HookCallback,
   HookCallbackMatcher,
   Options,
+  SDKMessage,
   SyncHookJSONOutput,
 } from "@anthropic-ai/claude-code";
+import type { Logger } from "../util/logger.js";
 
 const DANGEROUS_BASH_PATTERNS = [
   /\bgit\s+push\b/,
@@ -131,4 +133,110 @@ export function getBaseSdkOptions(): Pick<Options, "pathToClaudeCodeExecutable" 
     pathToClaudeCodeExecutable: executable,
     env: cleanEnvForSdk(),
   };
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+export function logAgentProgress(
+  logger: Logger,
+  agentName: string,
+  message: SDKMessage
+): void {
+  if (message.type === "result") {
+    return;
+  }
+
+  const payload: Record<string, unknown> = {
+    eventType: message.type,
+  };
+
+  const subtype = getRecord(message)?.subtype;
+  if (typeof subtype === "string") {
+    payload.subtype = subtype;
+  }
+
+  const directName = getRecord(message)?.name;
+  if (typeof directName === "string") {
+    payload.toolName = directName;
+  }
+
+  const nestedMessage = getRecord(getRecord(message)?.message);
+  if (typeof nestedMessage?.id === "string") {
+    payload.messageId = nestedMessage.id;
+  }
+  if (typeof nestedMessage?.model === "string") {
+    payload.model = nestedMessage.model;
+  }
+
+  logger.info(`${agentName} progress`, payload);
+}
+
+export interface StreamAgentResponseOptions {
+  agentName: string;
+  logger: Logger;
+  noOutputTimeoutMs?: number;
+  onMessage?: (message: SDKMessage) => void;
+}
+
+async function nextWithWatchdog<T>(
+  iterator: AsyncIterator<T>,
+  logger: Logger,
+  agentName: string,
+  noOutputTimeoutMs: number
+): Promise<IteratorResult<T>> {
+  if (noOutputTimeoutMs <= 0) {
+    return iterator.next();
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      iterator.next(),
+      new Promise<IteratorResult<T>>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const message = `${agentName} emitted no output for ${noOutputTimeoutMs}ms`;
+          logger.warn("Agent watchdog triggered", {
+            agentName,
+            noOutputTimeoutMs,
+          });
+          reject(new Error(message));
+        }, noOutputTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+export async function streamAgentResponse(
+  response: AsyncIterable<SDKMessage>,
+  options: StreamAgentResponseOptions
+): Promise<SDKMessage | undefined> {
+  const iterator = response[Symbol.asyncIterator]();
+  const timeoutMs = options.noOutputTimeoutMs ?? 30_000;
+  let successMessage: SDKMessage | undefined;
+
+  while (true) {
+    const next = await nextWithWatchdog(iterator, options.logger, options.agentName, timeoutMs);
+    if (next.done) {
+      break;
+    }
+
+    const message = next.value;
+    logAgentProgress(options.logger, options.agentName, message);
+    options.onMessage?.(message);
+
+    if (message.type === "result" && message.subtype === "success") {
+      successMessage = message;
+    }
+  }
+
+  return successMessage;
 }

@@ -1,5 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
-import { blockDangerousOps, cleanEnvForSdk, extractJson, getBaseSdkOptions, findClaudeExecutable, wrapUntrustedContent } from "../../src/agents/shared.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  blockDangerousOps,
+  cleanEnvForSdk,
+  extractJson,
+  getBaseSdkOptions,
+  findClaudeExecutable,
+  logAgentProgress,
+  streamAgentResponse,
+  wrapUntrustedContent,
+} from "../../src/agents/shared.js";
 
 describe("blockDangerousOps", () => {
   describe("Bash tool", () => {
@@ -249,6 +258,211 @@ describe("blockDangerousOps", () => {
       const result = await blockDangerousOps("Glob", { pattern: "**/*.ts" });
       expect(result.decision).toBeUndefined();
     });
+  });
+});
+
+describe("logAgentProgress", () => {
+  const logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("logs assistant message with messageId and model", () => {
+    logAgentProgress(logger as any, "Planner", {
+      type: "assistant",
+      message: { id: "msg_1", model: "claude-opus-4-6" },
+    } as any);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "Planner progress",
+      expect.objectContaining({
+        eventType: "assistant",
+        messageId: "msg_1",
+        model: "claude-opus-4-6",
+      })
+    );
+  });
+
+  it("logs tool_use message with toolName", () => {
+    logAgentProgress(logger as any, "Planner", {
+      type: "tool_use",
+      name: "Read",
+    } as any);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "Planner progress",
+      expect.objectContaining({
+        eventType: "tool_use",
+        toolName: "Read",
+      })
+    );
+  });
+
+  it("skips result messages", () => {
+    logAgentProgress(logger as any, "Planner", {
+      type: "result",
+      subtype: "success",
+      result: "{}",
+    } as any);
+
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it("includes subtype when present", () => {
+    logAgentProgress(logger as any, "Reviewer", {
+      type: "error",
+      subtype: "tool_error",
+    } as any);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "Reviewer progress",
+      expect.objectContaining({
+        eventType: "error",
+        subtype: "tool_error",
+      })
+    );
+  });
+
+  it("handles minimal message with only type field", () => {
+    logAgentProgress(logger as any, "Fixer", {
+      type: "system",
+    } as any);
+
+    expect(logger.info).toHaveBeenCalledWith("Fixer progress", {
+      eventType: "system",
+    });
+  });
+});
+
+describe("streamAgentResponse", () => {
+  const logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("throws when no output arrives before the watchdog deadline", async () => {
+    const response = (async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      yield {
+        type: "result" as const,
+        subtype: "success" as const,
+        result: "{}",
+      };
+    })();
+
+    await expect(
+      streamAgentResponse(response, {
+        logger: logger as any,
+        agentName: "Planner",
+        noOutputTimeoutMs: 5,
+      })
+    ).rejects.toThrow(/Planner.*no output/i);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Agent watchdog triggered",
+      expect.objectContaining({
+        agentName: "Planner",
+        noOutputTimeoutMs: 5,
+      })
+    );
+  });
+
+  it("does not fire the watchdog when messages keep arriving", async () => {
+    const response = (async function* () {
+      yield {
+        type: "assistant" as const,
+        message: { id: "msg_1" },
+      };
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      yield {
+        type: "result" as const,
+        subtype: "success" as const,
+        result: '{"ok":true}',
+      };
+    })();
+
+    const result = await streamAgentResponse(response, {
+      logger: logger as any,
+      agentName: "Planner",
+      noOutputTimeoutMs: 20,
+    });
+
+    expect(result).toMatchObject({
+      type: "result",
+      subtype: "success",
+      result: '{"ok":true}',
+    });
+  });
+
+  it("logs progress for non-result messages via logAgentProgress", async () => {
+    const response = (async function* () {
+      yield {
+        type: "assistant" as const,
+        message: { id: "msg_1", model: "claude-opus-4-6" },
+      };
+      yield {
+        type: "tool_use" as const,
+        name: "Grep",
+      };
+      yield {
+        type: "result" as const,
+        subtype: "success" as const,
+        result: '{"ok":true}',
+      };
+    })();
+
+    await streamAgentResponse(response, {
+      logger: logger as any,
+      agentName: "Implementer",
+      noOutputTimeoutMs: 100,
+    });
+
+    // assistant and tool_use should be logged, result should not
+    expect(logger.info).toHaveBeenCalledWith(
+      "Implementer progress",
+      expect.objectContaining({ eventType: "assistant", messageId: "msg_1" })
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Implementer progress",
+      expect.objectContaining({ eventType: "tool_use", toolName: "Grep" })
+    );
+    // result type should NOT appear in progress logs
+    const progressCalls = logger.info.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === "string" && call[0].includes("progress")
+    );
+    for (const call of progressCalls) {
+      expect((call[1] as Record<string, unknown>).eventType).not.toBe("result");
+    }
+  });
+
+  it("calls onMessage for every yielded message including result", async () => {
+    const messages: unknown[] = [];
+    const response = (async function* () {
+      yield { type: "assistant" as const, message: { id: "msg_1" } };
+      yield { type: "tool_use" as const, name: "Read" };
+      yield { type: "result" as const, subtype: "success" as const, result: "{}" };
+    })();
+
+    await streamAgentResponse(response, {
+      logger: logger as any,
+      agentName: "Planner",
+      noOutputTimeoutMs: 100,
+      onMessage: (msg) => messages.push(msg),
+    });
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0]).toMatchObject({ type: "assistant" });
+    expect(messages[1]).toMatchObject({ type: "tool_use", name: "Read" });
+    expect(messages[2]).toMatchObject({ type: "result", subtype: "success" });
   });
 });
 

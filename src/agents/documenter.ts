@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-code";
 import type { Result } from "../types.js";
-import { createSafetyHook, getBaseSdkOptions } from "./shared.js";
+import { createSafetyHook, getBaseSdkOptions, streamAgentResponse } from "./shared.js";
 import type { Logger } from "../util/logger.js";
 
 export interface DocumenterInput {
@@ -44,9 +44,12 @@ Instructions:
     },
   });
 
-  for await (const message of response) {
-    if (message.type === "result" && message.subtype === "success") {
-      logger.info("Documenter completed", { result: message.result.slice(0, 200) });
-    }
+  const successMessage = await streamAgentResponse(response, {
+    agentName: "Documenter",
+    logger,
+  });
+
+  if (successMessage?.type === "result" && successMessage.subtype === "success") {
+    logger.info("Documenter completed", { result: successMessage.result.slice(0, 200) });
   }
 }
