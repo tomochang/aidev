@@ -137,7 +137,8 @@ export function createCli() {
     .option("--allow-foreign-issues", "Allow processing issues or PRs from other users", false)
     .option("--verbose", "Emit JSONL progress lines to stderr for external agent observability", false)
     .option("--backend <name>", "Backend runner to use", DEFAULT_BACKEND)
-    .option("--model <model>", "Model to use with the backend");
+    .option("--model <model>", "Model to use with the backend")
+    .option("--language <lang>", "Output language (ja or en)", "ja");
 
   runCmd.action(async (opts) => {
       if (opts.claudePath) process.env.CLAUDE_EXECUTABLE = opts.claudePath;
@@ -175,6 +176,7 @@ export function createCli() {
           ...saved,
           dryRun: opts.dryRun,
           autoMerge: opts.autoMerge,
+          language: saved.language ?? "ja",
         };
         // If previous run completed as done (dry-run), restart from creating_pr
         // (commit already exists, just need push + PR)
@@ -238,6 +240,7 @@ export function createCli() {
           base: "base",
           backend: "backend",
           model: "model",
+          language: "language",
         };
         for (const [ctxKey, cliName] of Object.entries(flagMap)) {
           if (runCmd.getOptionValueSource(cliName) === "cli") {
@@ -262,6 +265,7 @@ export function createCli() {
           reviewRound: 0,
           dryRun: opts.dryRun,
           autoMerge: opts.autoMerge,
+          language: opts.language,
           issueLabels: [],
           skipStates: [],
           skipAuthorCheck: opts.allowForeignIssues,
@@ -402,6 +406,7 @@ export function createCli() {
     .option("--claude-path <path>", "Path to native Claude Code executable")
     .option("--backend <name>", "Backend runner to use", DEFAULT_BACKEND)
     .option("--model <model>", "Model to use with the backend")
+    .option("--language <lang>", "Output language (ja or en)", "ja")
     .action(async (opts) => {
       if (opts.claudePath) process.env.CLAUDE_EXECUTABLE = opts.claudePath;
       const logger = createLogger("info");
@@ -471,6 +476,7 @@ export function createCli() {
                 reviewRound: 0,
                 dryRun: false,
                 autoMerge: false,
+                language: opts.language,
                 issueLabels: issue.labels,
                 skipStates: [],
                 skipAuthorCheck: false,
