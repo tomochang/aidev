@@ -136,15 +136,22 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     if (merged.skip) patch.skipStates = merged.skip as SkippableState[];
 
     // Re-create runner if backend/model changed via Issue or repo config
-    if (deps.resolveRunner && (merged.backend || merged.model)) {
-      runner = deps.resolveRunner({
-        backend: merged.backend ?? DEFAULT_BACKEND,
-        model: merged.model,
-      });
-      logger.info("Switched backend from merged config", {
-        backend: merged.backend,
-        model: merged.model,
-      });
+    if (merged.backend || merged.model) {
+      if (deps.resolveRunner) {
+        runner = deps.resolveRunner({
+          backend: merged.backend ?? DEFAULT_BACKEND,
+          model: merged.model,
+        });
+        logger.info("Switched backend from merged config", {
+          backend: merged.backend,
+          model: merged.model,
+        });
+      } else {
+        logger.warn("backend/model specified in config but resolveRunner not provided; ignoring", {
+          backend: merged.backend,
+          model: merged.model,
+        });
+      }
     }
 
     const mergedCtx = { ...ctx, ...patch };
