@@ -3,6 +3,7 @@
 # CLI flags override both.
 
 maxFixAttempts: 3
+maxReviewRounds: 5
 autoMerge: false
 dryRun: false
 base: main
