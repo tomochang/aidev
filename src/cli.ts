@@ -9,7 +9,9 @@ import { createLogger } from "./util/logger.js";
 import { runWorkflow, type Persistence } from "./workflow/engine.js";
 import { createStateHandlers } from "./workflow/states.js";
 import { runDocumenter } from "./agents/documenter.js";
-import { ClaudeCodeRunner } from "./agents/claude-code-runner.js";
+import { createRunner } from "./agents/runner-factory.js";
+import { DEFAULT_BACKEND } from "./agents/backend-config.js";
+import type { BackendConfig } from "./agents/backend-config.js";
 import { createSlackNotifier, formatSlackMessage } from "./adapters/slack.js";
 import { loadRepoConfig } from "./config/repo-config.js";
 import { writeAidevYml } from "./config/init.js";
@@ -105,6 +107,13 @@ function detectRepo(cwd: string): string {
   return process.env.DEVLOOP_REPO ?? "mizumura3/inko";
 }
 
+function resolveBackendConfig(opts: { backend?: string; model?: string }): BackendConfig {
+  return {
+    backend: opts.backend ?? process.env.AIDEV_BACKEND ?? DEFAULT_BACKEND,
+    model: opts.model ?? process.env.AIDEV_MODEL,
+  };
+}
+
 export function createCli() {
   const program = new Command();
 
@@ -125,7 +134,9 @@ export function createCli() {
     .option("--resume", "Resume the latest run for this target")
     .option("-y, --yes", "Skip interactive confirmation", false)
     .option("--allow-foreign-issues", "Allow processing issues or PRs from other users", false)
-    .option("--verbose", "Emit JSONL progress lines to stderr for external agent observability", false);
+    .option("--verbose", "Emit JSONL progress lines to stderr for external agent observability", false)
+    .option("--backend <name>", "Backend runner to use", DEFAULT_BACKEND)
+    .option("--model <model>", "Model to use with the backend");
 
   runCmd.action(async (opts) => {
       if (opts.claudePath) process.env.CLAUDE_EXECUTABLE = opts.claudePath;
@@ -223,6 +234,8 @@ export function createCli() {
           dryRun: "dry-run",
           autoMerge: "auto-merge",
           base: "base",
+          backend: "backend",
+          model: "model",
         };
         for (const [ctxKey, cliName] of Object.entries(flagMap)) {
           if (runCmd.getOptionValueSource(cliName) === "cli") {
@@ -254,14 +267,18 @@ export function createCli() {
 
       const git = createGitAdapter();
       const github = createGitHubAdapter(ctx.repo);
-      const runner = new ClaudeCodeRunner();
+      const backendConfig = resolveBackendConfig(opts);
+      const runner = createRunner(backendConfig);
       const onProgress = verbose
         ? (message: import("./agents/runner.js").ProgressEvent) => {
             const line = formatProgressEvent("Agent", message);
             if (line) process.stderr.write(line + "\n");
           }
         : undefined;
-      const handlers = createStateHandlers({ git, github, logger, runner, runDocumenter, loadRepoConfig, onProgress });
+      const handlers = createStateHandlers({
+        git, github, logger, runner, runDocumenter, loadRepoConfig, onProgress,
+        resolveRunner: (config) => createRunner(config),
+      });
 
       const slackNotify = createSlackNotifier({
         webhookUrl: process.env.AIDEV_SLACK_WEBHOOK_URL,
@@ -347,6 +364,8 @@ export function createCli() {
     .option("--base <branch>", "Base branch or tag to create worktrees from", "main")
     .option("--repo <owner/name>", "GitHub repo (owner/name)")
     .option("--claude-path <path>", "Path to native Claude Code executable")
+    .option("--backend <name>", "Backend runner to use", DEFAULT_BACKEND)
+    .option("--model <model>", "Model to use with the backend")
     .action(async (opts) => {
       if (opts.claudePath) process.env.CLAUDE_EXECUTABLE = opts.claudePath;
       const logger = createLogger("info");
@@ -356,9 +375,13 @@ export function createCli() {
 
       const git = createGitAdapter();
       const github = createGitHubAdapter(repo);
-      const runner = new ClaudeCodeRunner();
+      const backendConfig = resolveBackendConfig(opts);
+      const runner = createRunner(backendConfig);
       const persistence = createFilePersistence(baseDir);
-      const handlers = createStateHandlers({ git, github, logger, runner, runDocumenter, loadRepoConfig });
+      const handlers = createStateHandlers({
+        git, github, logger, runner, runDocumenter, loadRepoConfig,
+        resolveRunner: (config) => createRunner(config),
+      });
 
       const slackNotify = createSlackNotifier({
         webhookUrl: process.env.AIDEV_SLACK_WEBHOOK_URL,

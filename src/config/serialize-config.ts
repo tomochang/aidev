@@ -8,6 +8,13 @@ export function serializeConfig(config: ResolvedConfig): string {
     `base: ${config.base}`,
   ];
 
+  if (config.backend) {
+    lines.push(`backend: ${config.backend}`);
+  }
+  if (config.model) {
+    lines.push(`model: ${config.model}`);
+  }
+
   if (config.skip.length > 0) {
     lines.push("skip:");
     for (const s of config.skip) {

@@ -30,6 +30,36 @@ describe("serializeConfig", () => {
     );
   });
 
+  it("includes backend and model when present", () => {
+    const config: ResolvedConfig = {
+      maxFixAttempts: 3,
+      autoMerge: false,
+      dryRun: false,
+      base: "main",
+      skip: [],
+      backend: "codex",
+      model: "o3",
+    };
+
+    const result = serializeConfig(config);
+    expect(result).toContain("backend: codex");
+    expect(result).toContain("model: o3");
+  });
+
+  it("omits backend and model when undefined", () => {
+    const config: ResolvedConfig = {
+      maxFixAttempts: 3,
+      autoMerge: false,
+      dryRun: false,
+      base: "main",
+      skip: [],
+    };
+
+    const result = serializeConfig(config);
+    expect(result).not.toContain("backend");
+    expect(result).not.toContain("model");
+  });
+
   it("omits skip line when skip is empty array", () => {
     const config: ResolvedConfig = {
       maxFixAttempts: 3,
