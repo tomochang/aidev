@@ -61,7 +61,7 @@ export function createGitAdapter(): GitAdapter {
     },
 
     async addWorktree(path, baseBranch, cwd) {
-      await execa("git", ["worktree", "add", path, baseBranch], { cwd });
+      await execa("git", ["worktree", "add", "--detach", path, baseBranch], { cwd });
     },
 
     async removeWorktree(path, cwd) {

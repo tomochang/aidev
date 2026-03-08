@@ -164,7 +164,7 @@ describe("GitAdapter", () => {
       await git.addWorktree("/tmp/wt-42", "main", cwd);
       expect(mockExeca).toHaveBeenCalledWith(
         "git",
-        ["worktree", "add", "/tmp/wt-42", "main"],
+        ["worktree", "add", "--detach", "/tmp/wt-42", "main"],
         { cwd }
       );
     });
