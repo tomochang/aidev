@@ -1,160 +1,135 @@
-# Issue #66 Implementation Plan
+# Issue #66: External Delegation Mode (Codex Mode)
 
-## Goal
+## Scope boundary with #74
 
-Introduce a `Codex mode` where `aidev` remains the workflow/orchestration layer while external operators handle planning and implementation without nesting another Claude execution loop.
+**#74** (汎用ワークフローオーケストレータ化) handles pluggable agent backends:
+- `AgentRunner` interface, `runner-factory.ts`, `BackendConfig` — **done**
+- `--backend` / `--model` CLI flags — **done**
+- `ClaudeCodeRunner`, `CodexCliRunner`, `CodexRunner` — **done**
+- `InstructionsAwareRunner` decorator — **done**
+- `outputSchema` in `AgentRunOptions` — **done**
+- Remaining #74 work: native structured output enforcement per backend
 
-## Prerequisites
+**#66** (this issue) adds a fundamentally different execution model: **skipping agent execution entirely** and accepting artifacts from an external operator. This is NOT another `AgentRunner` implementation — it's a workflow-level concern where certain states become handoff points rather than agent invocations.
 
-- Add a `--backend <name>` CLI option to the `run` command (does not exist yet). Default: `"claude-code"`. Validate against a known set of backends.
-- Add a `backend` field to `RunContextSchema` (types.ts) so the active mode is persisted and survives resume. Without this, resume cannot distinguish which mode originated the run.
-- Add a `blocked` state to `RunStateSchema`. Semantics: `blocked` IS included in `terminalStates` (stops the workflow loop), but is NOT a permanent end state — it is resumable. The resume path re-enters the loop from a `blocked` handler that gates on artifact availability.
-- Audit existing tests that construct `RunContext` directly (outside `makeCtx()`) to ensure the new `backend` field (with default) does not break them.
-- Update `formatSlackMessage` type signature and implementation to handle `blocked` alongside `done` and `failed`.
+## What already exists on main
 
-## Agent-runner interface sketch
+| Component | Status | Location |
+|-----------|--------|----------|
+| `AgentRunner` interface | Done | `src/agents/runner.ts` |
+| `runner-factory.ts` + 3 backends | Done | `src/agents/` |
+| `--backend` / `--model` flags | Done | `src/cli.ts:137-138` |
+| `blocked` in `RunStateSchema` + `terminalStates` | Done | `src/types.ts`, `src/workflow/engine.ts:23` |
+| `needs_discussion` → `blocked` transition | Done | `src/workflow/states.ts:347` |
+| Config cascade for `backend`/`model` | Done | `src/workflow/states.ts:162-170` |
+| `formatSlackMessage` handles `blocked` | Done | `src/cli.ts:368` |
 
-The current codebase calls `runPlanner()`, `runImplementer()`, `runReviewer()`, `runFixer()` directly from state handlers with agent-specific signatures. The abstraction should:
+## What #66 needs to add
 
-```typescript
-interface AgentDispatcher {
-  plan(input: PlannerInput, logger: Logger): Promise<Plan>
-  implement(input: ImplementerInput, logger: Logger): Promise<Result>
-  review(input: ReviewerInput, logger: Logger): Promise<Review>
-  fix(input: FixerInput, logger: Logger): Promise<Fix>
-  document(input: DocumenterInput, logger: Logger): Promise<void>
-}
+### 1. `aidev import` subcommand
+
+External operators need a way to inject artifacts into a paused run. Direct `state.json` editing is error-prone and undocumented.
+
+```
+aidev import --issue 42 --artifact-type plan plan.json
+aidev import --pr 5 --artifact-type result -    # stdin
+aidev import --run-id <id> --artifact-type fix fix.json --dry-run
 ```
 
-- **Default mode** (`claude-code`): delegates to existing `runPlanner`, `runImplementer`, etc.
-- **Codex mode**: the dispatcher is **not** responsible for detecting missing artifacts. State handlers check artifact availability BEFORE calling the dispatcher. If the required artifact is absent, the handler transitions to `blocked` without invoking the dispatcher. This keeps the dispatcher's return types clean (`Promise<Plan>`, not a union with a blocked sentinel).
-- **Reviewer in Codex mode**: the `review()` method delegates to the internal `runReviewer` even in Codex mode. The reviewer acts as a quality gate that aidev always owns — the external operator does not supply review artifacts. This ensures a consistent safety net regardless of who authored the code.
-- State handlers receive `AgentDispatcher` via `Deps`, replacing direct agent imports.
-- This keeps the workflow engine (`engine.ts`) unchanged — only the dispatcher implementation varies per mode.
-- `documenter` is included in the dispatcher interface. In Codex mode, it is a no-op (external operators handle their own documentation).
+Flags:
+- `--run-id <id>` | `--issue <N>` | `--pr <N>` — target run (issue/pr resolve via `findLatestByIssue`/`findLatestByPr`)
+- `--artifact-type` — `plan` | `result` | `fix` (not `review` — see reviewer policy below)
+- positional arg or `-` for stdin
+- `--max-size <bytes>` (default: 1MB) — reject oversized payloads
+- `--dry-run` — validate only, do not write
 
-## Proposed shape
+Behavior:
+- Validate payload against the matching Zod schema (`PlanSchema` / `ResultSchema` / `FixSchema`). On failure, print Zod error path + expected schema hint.
+- Write BOTH the artifact file (`plan.json` etc.) AND update `state.json` with the artifact in the corresponding `ctx` field. The `blocked` handler and resume logic read from `ctx`, not individual files.
+- Use atomic writes (temp file + `rename`) to prevent partial reads by concurrent resume.
 
-- Add a run-mode abstraction for agent execution (see interface sketch above)
-- Preserve existing default behavior as the standard Claude-backed mode
-- Add a Codex-oriented mode that skips internal planner/implementer execution and expects externally provided artifacts or manual continuation
-- Keep branch/PR/state persistence unchanged
-- Artifact ingress: use a dedicated `aidev import` subcommand. The import command:
-  - Accepts `--run-id <id>` OR `--issue <N>` OR `--pr <N>` (resolve to latest run via `findLatestByIssue`/`findLatestByPr`)
-  - Accepts `--artifact-type` (plan|result|fix) — `review` is not importable (see reviewer policy above)
-  - Accepts a file path as positional arg, or stdin (with `-`)
-  - Accepts `--max-size <bytes>` (default: 1MB) — reject payloads exceeding this limit. Applied to both file and stdin reads.
-  - Supports `--dry-run` to validate the artifact without writing it (prints validation result and exits)
-  - On validation failure, prints the specific Zod error path and a hint showing the expected schema shape
-  - **Write behavior**: import writes BOTH the artifact file (`plan.json`, `result.json`, `fix.json`) AND updates `state.json` with the artifact data in the corresponding field (`ctx.plan`, `ctx.result`, `ctx.fix`). This ensures resume can find the artifact via `ctx` without needing to re-read individual files.
-- **Atomic writes**: `aidev import` must write artifacts via temp file + rename to prevent partial reads by a concurrent `aidev run --resume`. The existing `createFilePersistence.save()` should also be updated to use atomic writes (this is a pre-existing issue, but Codex mode makes it a practical concern).
-- Specify the artifact contracts for `plan`, `result`, and `fix` payloads before implementation so persistence and resume semantics stay deterministic
-- All externally supplied artifacts MUST be validated against their Zod schemas (`PlanSchema`, `ResultSchema`, `FixSchema`) at ingress. Treat external artifacts as untrusted input — never deserialise into `RunContext` without schema validation.
-- Resume must enforce mode consistency: a run started in Codex mode cannot be resumed in default mode (and vice versa). The `backend` field in persisted state is the source of truth.
+### 2. `blockedReason` field on `RunContext`
 
-## State machine adjustments for Codex mode
+Currently `blocked` is only reached via `needs_discussion`. External delegation needs additional blocked reasons:
 
-### `init` state
+```typescript
+blockedReason: z.enum([
+  "needs_discussion",     // existing: reviewer flagged for human review
+  "awaiting_plan",        // new: external operator must supply plan
+  "awaiting_result",      // new: external operator must supply result
+  "awaiting_fix",         // new: external operator must supply fix
+]).optional()
+```
 
-The `init` handler runs identically in both modes with two exceptions:
-- **Author check**: in Codex mode, `--allow-foreign-issues` defaults to `true` (team workflows where the operator is not the issue author are common). The flag remains available for explicit override.
-- **Config cascade**: `backend` participates in the standard precedence (CLI > issue body > `.aidev.yml` > default). If `.aidev.yml` sets `backend: codex` but CLI passes `--backend claude-code`, CLI wins.
+### 3. `blocked` handler (new state handler)
 
-### `blocked` state
+Currently no handler is registered for `blocked` — the workflow loop simply stops. For external delegation, a handler is needed so resume from `blocked` can gate on artifact availability:
 
-`blocked` is a **gate state**: it is terminal for the current workflow loop invocation but resumable.
+| `blockedReason`    | Checks for       | Next state       |
+|--------------------|-------------------|------------------|
+| `needs_discussion` | (manual resume)   | re-enter from `reviewing` |
+| `awaiting_plan`    | `ctx.plan`        | `implementing`   |
+| `awaiting_result`  | `ctx.result`      | `committing`     |
+| `awaiting_fix`     | `ctx.fix`         | `watching_ci`    |
 
-Resume flow:
-1. Workflow reaches a point where an external artifact is required but absent → handler returns `{ nextState: "blocked", ctx: { ...ctx, blockedReason: "awaiting_plan" } }`
-2. Operator supplies artifact: `aidev import --issue 42 --artifact-type plan plan.json`
-3. Operator resumes: `aidev run --issue 42 --resume`
-4. Resume logic (cli.ts) detects `state === "blocked"`, loads context (which now includes the imported artifact in `ctx.plan`)
-5. `blocked` handler checks `blockedReason`, verifies the required artifact is present, transitions to the appropriate next state
-6. If artifact is still missing, remains in `blocked`
+If the required artifact is still absent, remain in `blocked`.
 
-A new `blockedReason` field is added to `RunContext`.
+Note: `blocked` stays in `terminalStates` (stops the loop). Resume re-enters the loop from the `blocked` handler as the initial state. This does NOT require removing `blocked` from `terminalStates` — instead, the resume path in `cli.ts` must NOT treat `blocked` as a permanent end state (unlike `done`/`failed`).
 
-### `blockedReason` → artifact check → next state mapping
+### 4. State handler changes for delegation mode
 
-| `blockedReason`    | Required artifact | Check              | Next state       |
-|--------------------|-------------------|--------------------|------------------|
-| `awaiting_plan`    | `ctx.plan`        | `PlanSchema.parse` | `implementing`   |
-| `awaiting_result`  | `ctx.result`      | `ResultSchema.parse` | `reviewing`    |
-| `awaiting_fix`     | `ctx.fix`         | `FixSchema.parse`  | `watching_ci`    |
+Delegation mode is active when `ctx.backend === "external"`. This is a new backend name — it is NOT registered in `runner-factory.ts` because no `AgentRunner` is needed.
 
-### State-specific changes
+- **`planning`**: if `backend === "external"` and `ctx.plan` is absent → transition to `blocked` with `blockedReason: "awaiting_plan"`. If `ctx.plan` exists (supplied via import) → skip to `implementing`.
+- **`implementing`**: if `backend === "external"` and `ctx.result` is absent → `blocked` with `"awaiting_result"`. If present → skip to `committing`.
+- **`reviewing`**: runs internal reviewer in ALL modes (quality gate aidev always owns). On `changes_requested` in external mode → clear `ctx.result`, transition to `blocked` with `"awaiting_result"`.
+- **`committing`**: make idempotent — if working tree is clean (external operator already committed), skip `git addAll + commit`.
+- **`fixing`**: if `backend === "external"` and `ctx.fix` is absent → `blocked` with `"awaiting_fix"`. If present → apply fix flow.
 
-- `planning` (Codex mode): check if `ctx.plan` exists (supplied via import). If yes, skip to `implementing`. If no, transition to `blocked` with `blockedReason: "awaiting_plan"`.
-- `implementing` (Codex mode): check if `ctx.result` exists. If yes, skip to `reviewing`. If no, transition to `blocked` with `blockedReason: "awaiting_result"`.
-- `reviewing`: runs internal reviewer in BOTH modes. On `changes_requested` in Codex mode, clears `ctx.result` and transitions to `blocked` with `blockedReason: "awaiting_result"`.
-- `committing`: check for uncommitted changes before running `git addAll + commit`. If the working tree is clean (external operator already committed), skip the commit step. aidev handles either case idempotently.
-- `fixing` (Codex mode): check if `ctx.fix` exists. If yes, apply fix flow. If no, transition to `blocked` with `blockedReason: "awaiting_fix"`.
+### 5. Resume logic update (`cli.ts`)
 
-## Interactions with existing commands
+Current resume (cli.ts) handles `done + dryRun` as a special case. Add:
+- `blocked` → load context, validate mode consistency, re-enter workflow loop (the `blocked` handler will gate on artifact presence)
+- Mode consistency: if persisted `backend` differs from CLI `--backend`, reject with error
 
-- `watch` command: Codex mode is NOT supported via `watch`. The watch loop auto-processes issues and has no mechanism for external artifact handoff. Explicitly reject `--backend codex` in watch mode with a clear error message.
-- `status` command: Should display the active backend/mode and `blockedReason` (if any) alongside run state.
+### 6. `watch` command guard
+
+`watch` auto-processes issues with no mechanism for artifact handoff. Reject `--backend external` in watch with a clear error.
+
+## What #66 does NOT touch (belongs to #74)
+
+- `AgentRunner` interface or existing runner implementations
+- `runner-factory.ts` registry
+- `outputSchema` handling
+- `--model` flag behavior
+- Native structured output enforcement per backend
 
 ## TDD
 
 Red:
-- add CLI tests for `--backend` option on `run` command (valid/invalid values)
-- add CLI tests for selecting Codex mode (`--backend codex`)
-- add CLI tests for `aidev import` subcommand:
-  - happy path with file and stdin
-  - `--issue`/`--pr` resolution to run-id
-  - validation errors with descriptive output (Zod path + schema hint)
-  - `--dry-run` validation-only mode
-  - atomic write verification
-  - oversized payload rejection
-  - reject `--artifact-type review` (not importable)
-  - verify both artifact file and `state.json` are updated
-- add CLI tests rejecting Codex mode in `watch` command
-- add workflow tests proving issue/PR orchestration still runs when internal agent execution is disabled
-- add persistence tests for externally supplied plan/result handoff data
-- add contract tests for artifact validation:
-  - missing required fields (e.g. `steps: []` violates `.min(1)`)
-  - extraneous / unknown fields (verify Zod `strict()` or `strip()` policy)
-  - oversized payloads (exceeding `--max-size`)
-  - schema version mismatch (forward-compatible: unknown fields stripped, missing required fields rejected)
-- add resume tests for mode-consistency enforcement (cross-mode resume must fail)
-- add resume-from-blocked tests:
-  - artifact now present → correct next state (per mapping table)
-  - artifact still missing → stays in `blocked`
-  - `blockedReason` correctly maps to the required artifact check
-- add `init` state tests for Codex mode defaults (`allow-foreign-issues` default true)
-- add `init` state tests for config cascade with `backend` field
-- add `reviewing` state test: reviewer runs internally in Codex mode; `changes_requested` → `blocked`
-- add `committing` state test for already-committed changes (idempotent commit)
-- add Slack notification test for `blocked` state formatting
+- `aidev import` CLI tests: file/stdin, issue/pr resolution, validation errors, dry-run, atomic writes, size limits, reject `review` type, dual-write (artifact file + state.json)
+- `blocked` handler tests: artifact present → correct next state; absent → stay blocked; `blockedReason` mapping
+- State handler tests for `backend === "external"`: planning/implementing/fixing skip to blocked; reviewing still runs internally; `changes_requested` → blocked; committing idempotent
+- Resume from blocked: mode-consistency enforcement; re-enter loop
+- Watch command: reject `--backend external`
 
 Green (ordered by dependency):
-1. add `backend` field to `RunContextSchema` with default `"claude-code"` and `blockedReason` optional field
-2. add `blocked` to `RunStateSchema` and `terminalStates` set in engine.ts
-3. add `--backend` CLI option to `run` command with validation
-4. implement `AgentDispatcher` interface with `document` method, plus default implementation (wrapping existing agent calls)
-5. implement Codex dispatcher (artifact-reading implementation)
-6. implement `aidev import` subcommand with schema validation, atomic writes, size limits, dry-run, and dual-write (artifact file + state.json)
-7. implement `blocked` state handler with artifact-presence gating (per mapping table)
-8. wire Codex mode through `run` and `resume` (mode-consistency check, `init` defaults)
-9. handle `reviewing → blocked` transition for Codex mode
-10. make `committing` handler idempotent (skip commit if no staged changes)
-11. update `formatSlackMessage` to handle `blocked` state
+1. Add `blockedReason` optional enum field to `RunContextSchema`
+2. Implement `blocked` state handler with artifact-presence gating
+3. Implement `aidev import` subcommand with validation, atomic writes, dual-write
+4. Add `backend === "external"` guards to `planning`, `implementing`, `fixing` handlers
+5. Make `committing` handler idempotent
+6. Handle `reviewing → blocked` for external mode on `changes_requested`
+7. Update resume logic for `blocked` state + mode-consistency check
+8. Guard `watch` command against `--backend external`
 
 Refactor:
-- move agent invocation behind `AgentDispatcher` so default mode and Codex mode share workflow logic
-- replace direct `runPlanner`/`runImplementer`/`runReviewer`/`runFixer` calls in states.ts with dispatcher calls
-- update `createFilePersistence.save()` to use atomic writes (temp + rename)
+- Update `createFilePersistence.save()` to use atomic writes (temp + rename) — pre-existing issue, now a practical concern with `aidev import`
 
-## Review notes before implementation
+## Design decisions
 
-- The orchestration layer should not assume Claude owns every state transition
-- Avoid duplicating workflow logic between default mode and Codex mode
-- Keep this mode explicit; silent autodetection would make debugging worse
-- Do not leave artifact injection implicit; operators need one documented way to provide `plan/result/fix` data
-- External artifacts are untrusted input — validate at the boundary, not deep inside the workflow engine
-- The `blocked` handler is a gate, not a dead end — always check if the required artifact has been supplied since the last run
-- The reviewer agent runs internally in both modes — it is the quality gate aidev always owns
-- The `committing` handler must be idempotent — external operators may or may not have committed their changes
-- File-based persistence is not atomic by default — use temp+rename for all writes that may be read concurrently
-- `aidev import` must update both the artifact file and `state.json` — the blocked handler reads from `ctx`, not from individual files
+- **Reviewer always internal**: external operators do not supply review artifacts. The reviewer is aidev's quality gate.
+- **`external` is a backend name, not a new `AgentRunner`**: it signals "no agent execution" at the workflow level. `createRunner("external")` intentionally throws — the state handlers never reach the runner.
+- **`aidev import` over CLI flags on `run`**: import can be called against a paused run without restarting the process. Operators work at their own pace.
+- **Atomic writes**: `aidev import` and persistence both use temp+rename to prevent partial reads during concurrent resume.
+- **`blocked` is a gate, not a dead end**: resume from blocked re-enters the workflow loop. The handler checks for the required artifact and either advances or stays put.
