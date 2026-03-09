@@ -56,6 +56,7 @@ Output ONLY valid JSON, no markdown fences.`;
   const successMessage = await streamAgentResponse(response, {
     agentName: "Fixer",
     logger,
+    noOutputTimeoutMs: provider === "codex" ? 10 * 60 * 1000 : 30_000,
   });
   const resultText =
     successMessage?.type === "result" && successMessage.subtype === "success"

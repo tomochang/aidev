@@ -55,6 +55,7 @@ Your final message must contain ONLY the JSON object, nothing else.`;
   const successMessage = await streamAgentResponse(response, {
     agentName: "Planner",
     logger,
+    noOutputTimeoutMs: provider === "codex" ? 10 * 60 * 1000 : 30_000,
   });
   const resultText =
     successMessage?.type === "result" && successMessage.subtype === "success"

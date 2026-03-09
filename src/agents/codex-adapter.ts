@@ -20,6 +20,13 @@ export async function* queryCodex(
   let stderr = "";
   let exitCode = 0;
 
+  // Yield a heartbeat message first so the watchdog doesn't kill us
+  // while waiting for codex exec to complete (can take minutes).
+  yield {
+    type: "assistant",
+    message: { id: "codex-start", model: "codex", content: [{ type: "text", text: "Starting codex exec..." }] },
+  } as unknown as SDKMessage;
+
   try {
     const result = await execa("codex", ["exec", prompt, "--full-auto"], {
       cwd: options.cwd,

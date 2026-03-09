@@ -52,6 +52,7 @@ Instructions:
   const successMessage = await streamAgentResponse(response, {
     agentName: "Documenter",
     logger,
+    noOutputTimeoutMs: provider === "codex" ? 10 * 60 * 1000 : 30_000,
   });
 
   if (successMessage?.type === "result" && successMessage.subtype === "success") {
