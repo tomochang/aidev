@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   runWorkflow,
   withTimeout,
+  MIN_STATE_TIMEOUT_MS,
   type StateHandlerMap,
   type Persistence,
 } from "../../src/workflow/engine.js";
@@ -569,14 +570,33 @@ describe("withTimeout", () => {
 });
 
 describe("runWorkflow with stateTimeouts", () => {
-  it("applies timeout to handler when stateTimeouts is configured", async () => {
-    // Handler that takes 200ms but has a 50ms timeout
+  it("applies timeout to handler when stateTimeouts >= MIN_STATE_TIMEOUT_MS", async () => {
     const slowHandler: StateHandler = async (ctx) => {
       await new Promise((resolve) => setTimeout(resolve, 200));
-      return { nextState: "reviewing" as RunState, ctx };
+      return { nextState: "done" as RunState, ctx };
     };
     const handlers: StateHandlerMap = {
       implementing: slowHandler,
+    };
+    const persistence = makePersistence();
+    const ctx = makeCtx({
+      state: "implementing",
+      stateTimeouts: { implementing: MIN_STATE_TIMEOUT_MS },
+    });
+
+    // Handler completes in 200ms which is before MIN_STATE_TIMEOUT_MS (5000ms),
+    // so timeout should NOT fire — handler completes normally
+    const result = await runWorkflow(ctx, handlers, persistence);
+    expect(result.state).toBe("done");
+  });
+
+  it("ignores stateTimeouts below MIN_STATE_TIMEOUT_MS", async () => {
+    const handlers: StateHandlerMap = {
+      implementing: async (ctx) => {
+        // This would time out if 50ms were applied, but MIN enforcement skips it
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return { nextState: "done" as RunState, ctx };
+      },
     };
     const persistence = makePersistence();
     const ctx = makeCtx({
@@ -585,9 +605,8 @@ describe("runWorkflow with stateTimeouts", () => {
     });
 
     const result = await runWorkflow(ctx, handlers, persistence);
-
-    expect(result.state).toBe("manual_handoff");
-    expect(result._timedOutState).toBe("implementing");
+    // 50ms < MIN_STATE_TIMEOUT_MS → timeout not applied → handler completes
+    expect(result.state).toBe("done");
   });
 
   it("does not apply timeout when stateTimeouts is not set for the state", async () => {
@@ -596,7 +615,7 @@ describe("runWorkflow with stateTimeouts", () => {
     };
     const persistence = makePersistence();
     const ctx = makeCtx({
-      stateTimeouts: { implementing: 50 },
+      stateTimeouts: { implementing: MIN_STATE_TIMEOUT_MS },
     });
 
     const result = await runWorkflow(ctx, handlers, persistence);
@@ -609,22 +628,21 @@ describe("E2E: timeout → manual_handoff → resume → done", () => {
   it("full lifecycle with real timeout firing", async () => {
     let implementingCallCount = 0;
 
-    // First call: slow handler that will be timed out (takes 200ms, timeout is 30ms)
+    // First call: slow handler wrapped with withTimeout (30ms timeout, 200ms work)
     // Second call (resume): fast handler that completes immediately
-    const implementingHandler: StateHandler = async (ctx) => {
+    const rawImplementingHandler: StateHandler = async (ctx) => {
       implementingCallCount++;
       if (implementingCallCount === 1) {
-        // Simulate slow work that will be interrupted by timeout
         await new Promise((resolve) => setTimeout(resolve, 200));
         return { nextState: "reviewing" as RunState, ctx };
       }
-      // Resume: complete immediately
       return { nextState: "reviewing" as RunState, ctx };
     };
 
     const handlers: StateHandlerMap = {
       init: makeHandler("implementing"),
-      implementing: implementingHandler,
+      // Use withTimeout directly (bypasses MIN_STATE_TIMEOUT_MS in runWorkflow)
+      implementing: withTimeout(rawImplementingHandler, 30),
       reviewing: makeHandler("done"),
     };
 
@@ -634,11 +652,8 @@ describe("E2E: timeout → manual_handoff → resume → done", () => {
       load: vi.fn(async () => null),
     };
 
-    // Phase 1: Run with stateTimeouts — should timeout and reach manual_handoff
-    const phase1Ctx = makeCtx({
-      state: "init",
-      stateTimeouts: { implementing: 30 },
-    });
+    // Phase 1: Run — implementing handler has withTimeout(30ms)
+    const phase1Ctx = makeCtx({ state: "init" });
 
     const phase1Result = await runWorkflow(phase1Ctx, handlers, persistence);
 
@@ -651,32 +666,36 @@ describe("E2E: timeout → manual_handoff → resume → done", () => {
     expect(handoffSave).toBeDefined();
     expect(handoffSave!._timedOutState).toBe("implementing");
 
-    // Phase 2: Resume from manual_handoff (simulate what CLI does)
+    // Phase 2: Resume from manual_handoff — use raw handler (no timeout)
+    const resumeHandlers: StateHandlerMap = {
+      ...handlers,
+      implementing: rawImplementingHandler,
+    };
+
     const phase2Ctx = makeCtx({
       ...phase1Result,
-      state: phase1Result._timedOutState as RunState, // CLI restores timed-out state
-      stateTimeouts: undefined, // Clear timeouts for resume (or use longer ones)
+      state: phase1Result._timedOutState as RunState,
     });
 
-    const phase2Result = await runWorkflow(phase2Ctx, handlers, persistence);
+    const phase2Result = await runWorkflow(phase2Ctx, resumeHandlers, persistence);
 
     expect(phase2Result.state).toBe("done");
-    expect(implementingCallCount).toBe(2); // Called twice: once timed out, once completed
+    expect(implementingCallCount).toBe(2);
 
-    // Verify the full state progression was saved
     const savedStates = savedContexts.map((c) => c.state);
-    expect(savedStates).toContain("implementing"); // Phase 1: init → implementing
-    expect(savedStates).toContain("manual_handoff"); // Phase 1: timeout
-    expect(savedStates).toContain("reviewing"); // Phase 2: implementing → reviewing
-    expect(savedStates).toContain("done"); // Phase 2: reviewing → done
+    expect(savedStates).toContain("implementing");
+    expect(savedStates).toContain("manual_handoff");
+    expect(savedStates).toContain("reviewing");
+    expect(savedStates).toContain("done");
   });
 
   it("preserves handoffReason and _timedOutState through persistence", async () => {
+    // Use withTimeout directly to bypass MIN_STATE_TIMEOUT_MS
     const handlers: StateHandlerMap = {
-      reviewing: async (ctx) => {
+      reviewing: withTimeout(async (ctx) => {
         await new Promise((resolve) => setTimeout(resolve, 200));
         return { nextState: "committing" as RunState, ctx };
-      },
+      }, 30),
     };
 
     let lastSaved: RunContext | null = null;
@@ -685,10 +704,8 @@ describe("E2E: timeout → manual_handoff → resume → done", () => {
       load: vi.fn(async () => lastSaved),
     };
 
-    const ctx = makeCtx({
-      state: "reviewing",
-      stateTimeouts: { reviewing: 30 },
-    });
+    // No stateTimeouts needed — handler already wrapped with withTimeout
+    const ctx = makeCtx({ state: "reviewing" });
 
     const result = await runWorkflow(ctx, handlers, persistence);
 

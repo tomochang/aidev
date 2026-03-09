@@ -71,10 +71,25 @@ export function withTimeout(
       handler(ctxWithSignal).then(
         (result) => {
           clearTimeout(timer);
+          if (ac.signal.aborted) {
+            // Handler completed after timeout — result is discarded but log for debugging
+            logger?.warn(`State ${ctx.state} handler completed after timeout (result discarded)`, {
+              state: ctx.state,
+              handlerNextState: result.nextState,
+            });
+            return; // resolve() already called by timer
+          }
           resolve(result);
         },
         (err) => {
           clearTimeout(timer);
+          if (ac.signal.aborted) {
+            logger?.warn(`State ${ctx.state} handler failed after timeout (error discarded)`, {
+              state: ctx.state,
+              error: String(err),
+            });
+            return; // resolve() already called by timer
+          }
           reject(err);
         },
       );
@@ -98,9 +113,9 @@ export async function runWorkflow(
       throw new Error(`No handler for state: ${ctx.state}`);
     }
 
-    // Apply per-state timeout if configured
+    // Apply per-state timeout if configured (enforce minimum as defense in depth)
     const timeoutMs = ctx.stateTimeouts?.[ctx.state];
-    if (timeoutMs != null) {
+    if (timeoutMs != null && timeoutMs >= MIN_STATE_TIMEOUT_MS) {
       handler = withTimeout(handler, timeoutMs, logger);
     }
 
@@ -131,8 +146,8 @@ export async function runWorkflow(
 
   try {
     await options?.onComplete?.(ctx);
-  } catch {
-    logger?.warn("onComplete callback failed");
+  } catch (err) {
+    logger?.warn("onComplete callback failed", { ...formatErrorDetails(err) });
   }
 
   return ctx;
