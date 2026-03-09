@@ -208,7 +208,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
         const authenticatedUser = await github.getAuthenticatedUser();
         if (pr.author !== authenticatedUser) {
           throw new Error(
-            `PR #${pr.number} was created by '${pr.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`
+            `PR #${pr.number} was not created by the authenticated user. Use --allow-foreign-issues to bypass this check.`
           );
         }
       }
@@ -246,7 +246,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       const authenticatedUser = await github.getAuthenticatedUser();
       if (issue.author !== authenticatedUser) {
         throw new Error(
-          `Issue #${issue.number} was created by '${issue.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`
+          `Issue #${issue.number} was not created by the authenticated user. Use --allow-foreign-issues to bypass this check.`
         );
       }
     }
@@ -266,6 +266,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
   };
 
   const planning: StateHandler = async (ctx) => {
+    if (ctx._abortSignal?.aborted) {
+      return transition(ctx, "manual_handoff", { handoffReason: "planning aborted before start" });
+    }
     const workItem =
       ctx.targetKind === "pr"
         ? toPlanningTarget(await github.getPr(ctx.prNumber!))
@@ -293,6 +296,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
 
   const implementing: StateHandler = async (ctx) => {
     if (!ctx.plan) throw new Error("No plan available");
+    if (ctx._abortSignal?.aborted) {
+      return transition(ctx, "manual_handoff", { handoffReason: "implementing aborted before start" });
+    }
     const implStart = performance.now();
     const result = await runImplementer(
       {
@@ -320,6 +326,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       return transition(ctx, "watching_ci");
     }
     if (!ctx.plan) throw new Error("No plan available");
+    if (ctx._abortSignal?.aborted) {
+      return transition(ctx, "manual_handoff", { handoffReason: "reviewing aborted before start" });
+    }
     const diff = await git.diff(ctx.base, ctx.cwd);
     const currentRound = (ctx.reviewRound ?? 0) + 1;
     const maxRounds = ctx.maxReviewRounds ?? 1;
@@ -443,8 +452,12 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       }
       // Abort-aware sleep: wake up early if timeout signal fires
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, pollInterval);
-        signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+        const onAbort = () => { clearTimeout(timer); resolve(); };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, pollInterval);
+        signal?.addEventListener("abort", onAbort, { once: true });
       });
     }
 
@@ -454,6 +467,9 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
 
   const fixing: StateHandler = async (ctx) => {
     if (!ctx.plan) throw new Error("No plan available");
+    if (ctx._abortSignal?.aborted) {
+      return transition(ctx, "manual_handoff", { handoffReason: "fixing aborted before start" });
+    }
     const isReviewFix = ctx.fixTrigger === "review";
     const fixerInput = isReviewFix
       ? { plan: ctx.plan, reviewFeedback: ctx.review!.mustFix.join("\n"), cwd: ctx.cwd }
@@ -467,6 +483,12 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     );
     const fixElapsed = Math.round(performance.now() - fixStart);
     logger.info("Fix applied", { rootCause: fix.rootCause, trigger: ctx.fixTrigger ?? "ci", agentElapsedMs: fixElapsed });
+
+    // Check abort signal before git operations to prevent ghost commits after timeout
+    if (ctx._abortSignal?.aborted) {
+      logger.warn("fixing: agent completed but abort signal fired — skipping git commit/push");
+      return transition(ctx, "manual_handoff", { handoffReason: "fixing aborted after agent completion" });
+    }
 
     await git.addAll(ctx.cwd);
     await git.commit(`fix: ${fix.rootCause}`, ctx.cwd);

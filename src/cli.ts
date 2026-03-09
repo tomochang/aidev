@@ -26,7 +26,9 @@ function createFilePersistence(baseDir: string): Persistence {
     async save(ctx) {
       const dir = join(baseDir, ctx.runId);
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "state.json"), JSON.stringify(ctx, null, 2));
+      // Strip transient fields that are not JSON-serializable or not meaningful across sessions
+      const { _abortSignal, _cliExplicit, ...serializable } = ctx;
+      await writeFile(join(dir, "state.json"), JSON.stringify(serializable, null, 2));
 
       if (ctx.plan)
         await writeFile(
@@ -473,7 +475,9 @@ export function createCli() {
         process.stdout.write(JSON.stringify(output) + "\n");
         exitCode = 1;
       } finally {
-        if (worktreeCreated && resultState !== "manual_handoff") {
+        // Preserve worktree if workflow reached manual_handoff (even if crash happened after)
+        const shouldPreserve = resultState === "manual_handoff" || lastKnownState === "manual_handoff";
+        if (worktreeCreated && !shouldPreserve) {
           await git.removeWorktree(worktreePath, originalCwd).catch((err) =>
             logger.error("Worktree cleanup failed", {
               path: worktreePath,
@@ -481,7 +485,7 @@ export function createCli() {
             })
           );
         }
-        if (resultState === "manual_handoff") {
+        if (shouldPreserve) {
           logger.info("Worktree preserved for resume", { path: worktreePath });
         }
       }
@@ -642,8 +646,11 @@ export function createCli() {
                   worktreePath,
                   resumeCommand: `aidev run --issue ${issue.number} --repo ${repo} --cwd ${cwd} --resume --yes`,
                 });
+                // Mark as failed so re-labeling can trigger a retry
+                processedIssues.set(issue.number, "failed");
+              } else {
+                processedIssues.set(issue.number, "done");
               }
-              processedIssues.set(issue.number, "done");
             } catch (err) {
               processedIssues.set(issue.number, "failed");
               throw err;

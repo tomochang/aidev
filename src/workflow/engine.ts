@@ -119,10 +119,11 @@ export async function runWorkflow(
       throw new Error(`No handler for state: ${ctx.state}`);
     }
 
-    // Apply per-state timeout if configured (enforce minimum as defense in depth)
+    // Apply per-state timeout if configured (enforce min/max as defense in depth)
     const timeoutMs = ctx.stateTimeouts?.[ctx.state];
     if (timeoutMs != null && timeoutMs >= MIN_STATE_TIMEOUT_MS) {
-      handler = withTimeout(handler, timeoutMs, logger);
+      const clampedMs = Math.min(timeoutMs, MAX_STATE_TIMEOUT_MS);
+      handler = withTimeout(handler, clampedMs, logger);
     }
 
     const from = ctx.state;
@@ -144,7 +145,16 @@ export async function runWorkflow(
     options?.onTransition?.(from, nextState, elapsedMs);
 
     ctx = { ...nextCtx, state: nextState };
-    await persistence.save(ctx);
+    try {
+      await persistence.save(ctx);
+    } catch (saveErr) {
+      logger?.error("Failed to persist state — halting to prevent state divergence", {
+        state: ctx.state,
+        runId: ctx.runId,
+        ...formatErrorDetails(saveErr),
+      });
+      throw saveErr;
+    }
   }
 
   const totalElapsedMs = Math.round(performance.now() - workflowStart);
