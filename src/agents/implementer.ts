@@ -1,6 +1,8 @@
 import { query } from "@anthropic-ai/claude-code";
 import { ResultSchema, type Plan, type Result } from "../types.js";
 import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
+import { queryCodex } from "./codex-adapter.js";
+import { getProvider } from "./provider.js";
 import type { Logger } from "../util/logger.js";
 
 export interface ImplementerInput {
@@ -62,16 +64,19 @@ Output ONLY valid JSON, no markdown fences.`;
     workItemNumber: input.workItemNumber,
   });
 
-  const response = query({
-    prompt,
-    options: {
-      ...getBaseSdkOptions(),
-      cwd: input.cwd,
-      permissionMode: "bypassPermissions",
-      hooks: { PreToolUse: [createSafetyHook()] },
-      maxTurns: 50,
-    },
-  });
+  const provider = getProvider();
+  const response = provider === "codex"
+    ? queryCodex(prompt, { cwd: input.cwd })
+    : query({
+        prompt,
+        options: {
+          ...getBaseSdkOptions(),
+          cwd: input.cwd,
+          permissionMode: "bypassPermissions",
+          hooks: { PreToolUse: [createSafetyHook()] },
+          maxTurns: 50,
+        },
+      });
 
   const successMessage = await streamAgentResponse(response, {
     agentName: "Implementer",

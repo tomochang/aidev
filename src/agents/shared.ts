@@ -135,6 +135,11 @@ export function getBaseSdkOptions(): Pick<Options, "pathToClaudeCodeExecutable" 
   };
 }
 
+/** Returns Codex-specific run options (just the cwd for now). */
+export function getCodexOptions(cwd: string): { cwd: string } {
+  return { cwd };
+}
+
 function getRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;

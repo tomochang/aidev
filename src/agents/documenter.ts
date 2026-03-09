@@ -1,6 +1,8 @@
 import { query } from "@anthropic-ai/claude-code";
 import type { Result } from "../types.js";
 import { createSafetyHook, getBaseSdkOptions, streamAgentResponse } from "./shared.js";
+import { queryCodex } from "./codex-adapter.js";
+import { getProvider } from "./provider.js";
 import type { Logger } from "../util/logger.js";
 
 export interface DocumenterInput {
@@ -32,17 +34,20 @@ Instructions:
 
   logger.info("Running documenter agent");
 
-  const response = query({
-    prompt,
-    options: {
-      ...getBaseSdkOptions(),
-      cwd,
-      permissionMode: "bypassPermissions",
-      allowedTools: ["Read", "Glob", "Grep", "Write", "Edit"],
-      hooks: { PreToolUse: [createSafetyHook()] },
-      maxTurns: 10,
-    },
-  });
+  const provider = getProvider();
+  const response = provider === "codex"
+    ? queryCodex(prompt, { cwd })
+    : query({
+        prompt,
+        options: {
+          ...getBaseSdkOptions(),
+          cwd,
+          permissionMode: "bypassPermissions",
+          allowedTools: ["Read", "Glob", "Grep", "Write", "Edit"],
+          hooks: { PreToolUse: [createSafetyHook()] },
+          maxTurns: 10,
+        },
+      });
 
   const successMessage = await streamAgentResponse(response, {
     agentName: "Documenter",

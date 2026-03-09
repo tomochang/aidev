@@ -1,6 +1,8 @@
 import { query } from "@anthropic-ai/claude-code";
 import { PlanSchema, type Plan } from "../types.js";
 import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
+import { queryCodex } from "./codex-adapter.js";
+import { getProvider } from "./provider.js";
 import type { Issue } from "../adapters/github.js";
 import type { Logger } from "../util/logger.js";
 
@@ -35,17 +37,20 @@ Your final message must contain ONLY the JSON object, nothing else.`;
 
   logger.info("Running planner agent", { issue: input.issue.number });
 
-  const response = query({
-    prompt,
-    options: {
-      ...getBaseSdkOptions(),
-      cwd: input.cwd,
-      permissionMode: "bypassPermissions",
-      allowedTools: ["Read", "Glob", "Grep", "Bash"],
-      hooks: { PreToolUse: [createSafetyHook()] },
-      maxTurns: 20,
-    },
-  });
+  const provider = getProvider();
+  const response = provider === "codex"
+    ? queryCodex(prompt, { cwd: input.cwd })
+    : query({
+        prompt,
+        options: {
+          ...getBaseSdkOptions(),
+          cwd: input.cwd,
+          permissionMode: "bypassPermissions",
+          allowedTools: ["Read", "Glob", "Grep", "Bash"],
+          hooks: { PreToolUse: [createSafetyHook()] },
+          maxTurns: 20,
+        },
+      });
 
   const successMessage = await streamAgentResponse(response, {
     agentName: "Planner",

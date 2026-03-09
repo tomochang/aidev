@@ -1,6 +1,8 @@
 import { query } from "@anthropic-ai/claude-code";
 import { ReviewSchema, type Plan, type Review } from "../types.js";
 import { createSafetyHook, extractJson, getBaseSdkOptions, streamAgentResponse, wrapUntrustedContent } from "./shared.js";
+import { queryCodex } from "./codex-adapter.js";
+import { getProvider } from "./provider.js";
 import type { Logger } from "../util/logger.js";
 
 export interface ReviewerInput {
@@ -38,17 +40,20 @@ Output ONLY valid JSON, no markdown fences.`;
 
   logger.info("Running reviewer agent");
 
-  const response = query({
-    prompt,
-    options: {
-      ...getBaseSdkOptions(),
-      cwd: input.cwd,
-      permissionMode: "bypassPermissions",
-      allowedTools: ["Read", "Glob", "Grep", "Bash"],
-      hooks: { PreToolUse: [createSafetyHook()] },
-      maxTurns: 20,
-    },
-  });
+  const provider = getProvider();
+  const response = provider === "codex"
+    ? queryCodex(prompt, { cwd: input.cwd })
+    : query({
+        prompt,
+        options: {
+          ...getBaseSdkOptions(),
+          cwd: input.cwd,
+          permissionMode: "bypassPermissions",
+          allowedTools: ["Read", "Glob", "Grep", "Bash"],
+          hooks: { PreToolUse: [createSafetyHook()] },
+          maxTurns: 20,
+        },
+      });
 
   const successMessage = await streamAgentResponse(response, {
     agentName: "Reviewer",
