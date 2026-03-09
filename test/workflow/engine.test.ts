@@ -572,3 +572,102 @@ describe("runWorkflow with stateTimeouts", () => {
     expect(result.state).toBe("done");
   });
 });
+
+describe("E2E: timeout → manual_handoff → resume → done", () => {
+  it("full lifecycle with real timeout firing", async () => {
+    let implementingCallCount = 0;
+
+    // First call: slow handler that will be timed out (takes 200ms, timeout is 30ms)
+    // Second call (resume): fast handler that completes immediately
+    const implementingHandler: StateHandler = async (ctx) => {
+      implementingCallCount++;
+      if (implementingCallCount === 1) {
+        // Simulate slow work that will be interrupted by timeout
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return { nextState: "reviewing" as RunState, ctx };
+      }
+      // Resume: complete immediately
+      return { nextState: "reviewing" as RunState, ctx };
+    };
+
+    const handlers: StateHandlerMap = {
+      init: makeHandler("implementing"),
+      implementing: implementingHandler,
+      reviewing: makeHandler("done"),
+    };
+
+    const savedContexts: RunContext[] = [];
+    const persistence: Persistence = {
+      save: vi.fn(async (ctx) => { savedContexts.push({ ...ctx }); }),
+      load: vi.fn(async () => null),
+    };
+
+    // Phase 1: Run with stateTimeouts — should timeout and reach manual_handoff
+    const phase1Ctx = makeCtx({
+      state: "init",
+      stateTimeouts: { implementing: 30 },
+    });
+
+    const phase1Result = await runWorkflow(phase1Ctx, handlers, persistence);
+
+    expect(phase1Result.state).toBe("manual_handoff");
+    expect(phase1Result._timedOutState).toBe("implementing");
+    expect(phase1Result.handoffReason).toContain("timed out");
+
+    // Verify persistence saved the manual_handoff state
+    const handoffSave = savedContexts.find((c) => c.state === "manual_handoff");
+    expect(handoffSave).toBeDefined();
+    expect(handoffSave!._timedOutState).toBe("implementing");
+
+    // Phase 2: Resume from manual_handoff (simulate what CLI does)
+    const phase2Ctx = makeCtx({
+      ...phase1Result,
+      state: phase1Result._timedOutState as RunState, // CLI restores timed-out state
+      stateTimeouts: undefined, // Clear timeouts for resume (or use longer ones)
+    });
+
+    const phase2Result = await runWorkflow(phase2Ctx, handlers, persistence);
+
+    expect(phase2Result.state).toBe("done");
+    expect(implementingCallCount).toBe(2); // Called twice: once timed out, once completed
+
+    // Verify the full state progression was saved
+    const savedStates = savedContexts.map((c) => c.state);
+    expect(savedStates).toContain("implementing"); // Phase 1: init → implementing
+    expect(savedStates).toContain("manual_handoff"); // Phase 1: timeout
+    expect(savedStates).toContain("reviewing"); // Phase 2: implementing → reviewing
+    expect(savedStates).toContain("done"); // Phase 2: reviewing → done
+  });
+
+  it("preserves handoffReason and _timedOutState through persistence", async () => {
+    const handlers: StateHandlerMap = {
+      reviewing: async (ctx) => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return { nextState: "committing" as RunState, ctx };
+      },
+    };
+
+    let lastSaved: RunContext | null = null;
+    const persistence: Persistence = {
+      save: vi.fn(async (ctx) => { lastSaved = { ...ctx }; }),
+      load: vi.fn(async () => lastSaved),
+    };
+
+    const ctx = makeCtx({
+      state: "reviewing",
+      stateTimeouts: { reviewing: 30 },
+    });
+
+    const result = await runWorkflow(ctx, handlers, persistence);
+
+    expect(result.state).toBe("manual_handoff");
+
+    // Simulate loading from persistence (as CLI --resume would)
+    const loaded = await persistence.load("test-run");
+    expect(loaded).not.toBeNull();
+    expect(loaded!.state).toBe("manual_handoff");
+    expect(loaded!._timedOutState).toBe("reviewing");
+    expect(loaded!.handoffReason).toContain("reviewing");
+    expect(loaded!.handoffReason).toContain("timed out");
+  });
+});

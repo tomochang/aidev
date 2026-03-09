@@ -207,6 +207,110 @@ describe("watch command", () => {
     // The watcher should still be alive (no throw)
   });
 
+  it("preserves worktree when watch mode issue ends in manual_handoff", async () => {
+    const mockGithub = {
+      listIssuesByLabel: vi.fn(async () => [
+        { number: 55, title: "Timeout issue", body: "body", labels: ["ai:run"], author: "testuser" },
+      ]),
+      getIssue: vi.fn(),
+      getAuthenticatedUser: vi.fn(async () => "testuser"),
+      commentOnIssue: vi.fn(),
+      createPr: vi.fn(),
+      getCiStatus: vi.fn(),
+      mergePr: vi.fn(),
+      closeIssue: vi.fn(),
+      getCheckRunLogs: vi.fn(),
+    };
+    vi.mocked(createGitHubAdapter).mockReturnValue(mockGithub);
+
+    const mockRunWorkflow = vi.mocked(runWorkflow);
+    mockRunWorkflow.mockImplementation(async (ctx: any) => ({
+      ...ctx,
+      state: "manual_handoff",
+      _timedOutState: "implementing",
+      handoffReason: "State implementing timed out after 1800000ms",
+    }));
+
+    const originalSetInterval = global.setInterval;
+    vi.spyOn(global, "setInterval").mockImplementation(((
+      fn: Function,
+      ms: number
+    ) => {
+      return originalSetInterval(() => {}, ms);
+    }) as any);
+
+    const cli = createCli();
+    await cli.parseAsync([
+      "node",
+      "aidev",
+      "watch",
+      "--repo",
+      "owner/repo",
+      "--interval",
+      "999",
+    ]);
+
+    // Wait for fire-and-forget to settle
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockRunWorkflow).toHaveBeenCalledTimes(1);
+
+    // addWorktree called once (for creating the worktree)
+    expect(mockAddWorktree).toHaveBeenCalledTimes(1);
+
+    // removeWorktree should NOT be called — worktree preserved for manual_handoff
+    expect(mockRemoveWorktree).not.toHaveBeenCalled();
+  });
+
+  it("cleans up worktree when watch mode issue completes normally", async () => {
+    const mockGithub = {
+      listIssuesByLabel: vi.fn(async () => [
+        { number: 56, title: "Normal issue", body: "body", labels: ["ai:run"], author: "testuser" },
+      ]),
+      getIssue: vi.fn(),
+      getAuthenticatedUser: vi.fn(async () => "testuser"),
+      commentOnIssue: vi.fn(),
+      createPr: vi.fn(),
+      getCiStatus: vi.fn(),
+      mergePr: vi.fn(),
+      closeIssue: vi.fn(),
+      getCheckRunLogs: vi.fn(),
+    };
+    vi.mocked(createGitHubAdapter).mockReturnValue(mockGithub);
+
+    const mockRunWorkflow = vi.mocked(runWorkflow);
+    mockRunWorkflow.mockImplementation(async (ctx: any) => ({
+      ...ctx,
+      state: "done",
+    }));
+
+    const originalSetInterval = global.setInterval;
+    vi.spyOn(global, "setInterval").mockImplementation(((
+      fn: Function,
+      ms: number
+    ) => {
+      return originalSetInterval(() => {}, ms);
+    }) as any);
+
+    const cli = createCli();
+    await cli.parseAsync([
+      "node",
+      "aidev",
+      "watch",
+      "--repo",
+      "owner/repo",
+      "--interval",
+      "999",
+    ]);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockRunWorkflow).toHaveBeenCalledTimes(1);
+
+    // Normal completion → worktree should be cleaned up
+    expect(mockRemoveWorktree).toHaveBeenCalledTimes(1);
+  });
+
   it("creates unique runIds for each issue", async () => {
     const mockGithub = {
       listIssuesByLabel: vi.fn(async () => [
