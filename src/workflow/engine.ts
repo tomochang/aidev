@@ -17,7 +17,42 @@ export interface WorkflowOptions {
   logger?: Logger;
 }
 
-const terminalStates: ReadonlySet<RunState> = new Set(["done", "failed", "blocked"]);
+const terminalStates: ReadonlySet<RunState> = new Set(["done", "failed", "blocked", "manual_handoff"]);
+
+/**
+ * Wrap a StateHandler with a wall-clock timeout.
+ * If the handler doesn't complete within `timeoutMs`, the workflow transitions
+ * to `manual_handoff` with `_timedOutState` set to the current state.
+ * Pass `Infinity` to effectively disable the timeout.
+ */
+export function withTimeout(
+  handler: StateHandler,
+  timeoutMs: number,
+  logger?: Logger,
+): StateHandler {
+  if (!Number.isFinite(timeoutMs)) return handler;
+
+  return async (ctx) => {
+    const timeout = new Promise<{ nextState: RunState; ctx: RunContext }>((resolve) => {
+      setTimeout(() => {
+        logger?.warn(`State ${ctx.state} timed out after ${timeoutMs}ms — handing off`, {
+          state: ctx.state,
+          timeoutMs,
+        });
+        resolve({
+          nextState: "manual_handoff",
+          ctx: {
+            ...ctx,
+            _timedOutState: ctx.state,
+            handoffReason: `State ${ctx.state} timed out after ${timeoutMs}ms`,
+          },
+        });
+      }, timeoutMs);
+    });
+
+    return Promise.race([handler(ctx), timeout]);
+  };
+}
 
 export async function runWorkflow(
   initial: RunContext,

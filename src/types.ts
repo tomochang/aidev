@@ -23,6 +23,7 @@ export const RunStateSchema = z.enum([
   "done",
   "failed",
   "blocked",
+  "manual_handoff",
 ]);
 export type RunState = z.infer<typeof RunStateSchema>;
 
@@ -89,6 +90,9 @@ export const RunContextSchema = z.object({
   review: ReviewSchema.optional(),
   fix: FixSchema.optional(),
   fixTrigger: z.enum(["ci", "review"]).optional(),
+  handoffReason: z.string().optional(),
+  _timedOutState: RunStateSchema.optional(),
+  stateTimeouts: z.record(RunStateSchema, z.number()).optional(),
 }).superRefine((ctx, issueCtx) => {
   if (ctx.targetKind === "issue" && ctx.issueNumber == null) {
     issueCtx.addIssue({

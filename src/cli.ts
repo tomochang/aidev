@@ -17,7 +17,7 @@ import { createSlackNotifier, formatSlackMessage } from "./adapters/slack.js";
 import { loadRepoConfig } from "./config/repo-config.js";
 import { writeAidevYml } from "./config/init.js";
 import { runPreflightChecks } from "./preflight.js";
-import type { RunContext } from "./types.js";
+import { RunStateSchema, type RunContext } from "./types.js";
 import { formatElapsed, formatProgressEvent } from "./agents/shared.js";
 import { formatErrorDetails } from "./util/error.js";
 
@@ -185,6 +185,10 @@ export function createCli() {
         // (commit already exists, just need push + PR)
         if (saved.state === "done" && saved.dryRun) {
           ctx.state = "creating_pr";
+        }
+        // If previous run was handed off due to timeout, resume from the timed-out state
+        if (saved.state === "manual_handoff" && saved._timedOutState) {
+          ctx.state = RunStateSchema.parse(saved._timedOutState);
         }
       } else {
         const runId = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -365,7 +369,7 @@ export function createCli() {
               targetNumber: finalCtx.issueNumber ?? finalCtx.prNumber!,
               issueTitle: finalCtx.issueTitle,
               repo: finalCtx.repo,
-              finalState: finalCtx.state as "done" | "failed" | "blocked",
+              finalState: finalCtx.state as "done" | "failed" | "blocked" | "manual_handoff",
               elapsedMs,
               prNumber: finalCtx.prNumber,
             });
@@ -383,6 +387,16 @@ export function createCli() {
             summary: result.result?.changeSummary,
           };
           process.stdout.write(JSON.stringify(output) + "\n");
+        } else if (result.state === "manual_handoff") {
+          logger.warn("Devloop handed off - needs human intervention", { runId: ctx.runId });
+          const output = {
+            status: "manual_handoff" as const,
+            runId: result.runId,
+            timedOutState: result._timedOutState,
+            reason: result.handoffReason,
+          };
+          process.stdout.write(JSON.stringify(output) + "\n");
+          exitCode = 1;
         } else if (result.state === "blocked") {
           logger.warn("Devloop blocked - needs human discussion", { runId: ctx.runId });
           const output = {
@@ -544,7 +558,7 @@ export function createCli() {
                     targetNumber: finalCtx.issueNumber ?? finalCtx.prNumber!,
                     issueTitle: finalCtx.issueTitle,
                     repo: finalCtx.repo,
-                    finalState: finalCtx.state as "done" | "failed" | "blocked",
+                    finalState: finalCtx.state as "done" | "failed" | "blocked" | "manual_handoff",
                     elapsedMs,
                     prNumber: finalCtx.prNumber,
                   });

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   runWorkflow,
+  withTimeout,
   type StateHandlerMap,
   type Persistence,
 } from "../../src/workflow/engine.js";
-import type { RunContext, RunState } from "../../src/types.js";
+import type { RunContext, RunState, StateHandler } from "../../src/types.js";
 import type { Logger } from "../../src/util/logger.js";
 
 function makeCtx(overrides: Partial<RunContext> = {}): RunContext {
@@ -385,5 +386,98 @@ describe("runWorkflow", () => {
       { from: "init", to: "planning" },
       { from: "planning", to: "done" },
     ]);
+  });
+
+  it("stops at terminal state manual_handoff", async () => {
+    const handlers: StateHandlerMap = {
+      implementing: vi.fn(async (ctx) => ({
+        nextState: "manual_handoff" as RunState,
+        ctx: { ...ctx, handoffReason: "test timeout" },
+      })),
+    };
+    const persistence = makePersistence();
+    const ctx = makeCtx({ state: "implementing" });
+
+    const result = await runWorkflow(ctx, handlers, persistence);
+
+    expect(result.state).toBe("manual_handoff");
+    expect(result.handoffReason).toBe("test timeout");
+  });
+
+  it("calls onComplete for manual_handoff terminal state", async () => {
+    const handlers: StateHandlerMap = {
+      init: vi.fn(async (ctx) => ({
+        nextState: "manual_handoff" as RunState,
+        ctx,
+      })),
+    };
+    const persistence = makePersistence();
+    const ctx = makeCtx();
+    const onComplete = vi.fn(async () => {});
+
+    await runWorkflow(ctx, handlers, persistence, { onComplete });
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "manual_handoff" })
+    );
+  });
+});
+
+describe("withTimeout", () => {
+  it("returns handler result when handler completes before timeout", async () => {
+    const inner: StateHandler = async (ctx) => ({
+      nextState: "reviewing" as RunState,
+      ctx,
+    });
+
+    const wrapped = withTimeout(inner, 5000);
+    const ctx = makeCtx({ state: "implementing" });
+    const result = await wrapped(ctx);
+
+    expect(result.nextState).toBe("reviewing");
+  });
+
+  it("returns manual_handoff when handler exceeds timeout", async () => {
+    const inner: StateHandler = async (ctx) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return { nextState: "reviewing" as RunState, ctx };
+    };
+
+    const logger: Logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    const wrapped = withTimeout(inner, 50, logger);
+    const ctx = makeCtx({ state: "implementing" });
+    const result = await wrapped(ctx);
+
+    expect(result.nextState).toBe("manual_handoff");
+    expect(result.ctx._timedOutState).toBe("implementing");
+    expect(result.ctx.handoffReason).toContain("implementing");
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("returns handler result when timeoutMs is Infinity", async () => {
+    const inner: StateHandler = async (ctx) => ({
+      nextState: "reviewing" as RunState,
+      ctx,
+    });
+
+    const wrapped = withTimeout(inner, Infinity);
+    const ctx = makeCtx({ state: "implementing" });
+    const result = await wrapped(ctx);
+
+    expect(result.nextState).toBe("reviewing");
+  });
+
+  it("preserves context fields through timeout wrapper", async () => {
+    const inner: StateHandler = async (ctx) => ({
+      nextState: "committing" as RunState,
+      ctx: { ...ctx, fixAttempts: 2 },
+    });
+
+    const wrapped = withTimeout(inner, 5000);
+    const ctx = makeCtx({ state: "implementing" });
+    const result = await wrapped(ctx);
+
+    expect(result.ctx.fixAttempts).toBe(2);
   });
 });

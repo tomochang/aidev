@@ -176,4 +176,44 @@ describe("parseIssueConfig", () => {
     expect(result.language).toBeUndefined();
     expect(result.maxFixAttempts).toBe(3);
   });
+
+  it("parses stateTimeouts with valid state keys", () => {
+    const body = [
+      "```aidev",
+      "stateTimeouts:",
+      "  implementing: 1800000",
+      "  reviewing: 600000",
+      "```",
+    ].join("\n");
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toEqual({
+      implementing: 1800000,
+      reviewing: 600000,
+    });
+  });
+
+  it("ignores stateTimeouts with invalid state keys", () => {
+    const body = [
+      "```aidev",
+      "stateTimeouts:",
+      "  implementing: 1800000",
+      "  nonexistent: 600000",
+      "```",
+    ].join("\n");
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toEqual({
+      implementing: 1800000,
+    });
+  });
+
+  it("ignores stateTimeouts with non-numeric values", () => {
+    const body = [
+      "```aidev",
+      "stateTimeouts:",
+      "  implementing: abc",
+      "```",
+    ].join("\n");
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toBeUndefined();
+  });
 });
