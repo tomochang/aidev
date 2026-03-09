@@ -208,7 +208,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
         const authenticatedUser = await github.getAuthenticatedUser();
         if (pr.author !== authenticatedUser) {
           throw new Error(
-            `PR #${pr.number} was not created by the authenticated user. Use --allow-foreign-issues to bypass this check.`
+            `PR #${pr.number} was created by '${pr.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`
           );
         }
       }
@@ -246,7 +246,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       const authenticatedUser = await github.getAuthenticatedUser();
       if (issue.author !== authenticatedUser) {
         throw new Error(
-          `Issue #${issue.number} was not created by the authenticated user. Use --allow-foreign-issues to bypass this check.`
+          `Issue #${issue.number} was created by '${issue.author}', not by the authenticated user '${authenticatedUser}'. Use --allow-foreign-issues to bypass this check.`
         );
       }
     }
@@ -454,7 +454,6 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       await new Promise<void>((resolve) => {
         const onAbort = () => { clearTimeout(timer); resolve(); };
         const timer = setTimeout(() => {
-          signal?.removeEventListener("abort", onAbort);
           resolve();
         }, pollInterval);
         signal?.addEventListener("abort", onAbort, { once: true });

@@ -127,6 +127,13 @@ export async function runWorkflow(
     const timeoutMs = ctx.stateTimeouts?.[ctx.state];
     if (timeoutMs != null && timeoutMs >= MIN_STATE_TIMEOUT_MS) {
       const clampedMs = Math.min(timeoutMs, MAX_STATE_TIMEOUT_MS);
+      if (clampedMs < timeoutMs) {
+        logger?.warn(`stateTimeouts.${ctx.state} exceeds maximum — clamped from ${timeoutMs}ms to ${MAX_STATE_TIMEOUT_MS}ms`, {
+          state: ctx.state,
+          configured: timeoutMs,
+          clamped: MAX_STATE_TIMEOUT_MS,
+        });
+      }
       handler = withTimeout(handler, clampedMs, logger);
     }
 

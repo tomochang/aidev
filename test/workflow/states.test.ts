@@ -162,7 +162,7 @@ describe("init handler", () => {
     const handlers = createStateHandlers(deps);
     const ctx = makeCtx();
 
-    await expect(handlers.init!(ctx)).rejects.toThrow("not created by the authenticated user");
+    await expect(handlers.init!(ctx)).rejects.toThrow("not by the authenticated user");
   });
 
   it("allows issue when author matches authenticated user", async () => {

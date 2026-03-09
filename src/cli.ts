@@ -547,6 +547,7 @@ export function createCli() {
       // Track issue status: allow retrying failed issues on next label scan
       const processedIssues = new Map<number, "running" | "done" | "failed">();
       let concurrentRuns = 0;
+      let shuttingDown = false;
       const MAX_CONCURRENT_RUNS = 2;
 
       const poll = async () => {
@@ -656,6 +657,10 @@ export function createCli() {
               throw err;
             } finally {
               concurrentRuns--;
+              if (shuttingDown && concurrentRuns === 0) {
+                logger.info("All in-flight runs completed after shutdown signal, exiting");
+                process.exit(0);
+              }
               if (!preserveWorktree) {
                 await git.removeWorktree(worktreePath, cwd).catch((err) =>
                   runLogger.error("Worktree cleanup failed", {
@@ -687,10 +692,11 @@ export function createCli() {
 
       // Graceful shutdown on SIGTERM/SIGINT
       const shutdown = () => {
+        shuttingDown = true;
         clearInterval(intervalId);
         logger.info("Shutting down watch mode", { inFlightRuns: concurrentRuns });
-        // Allow in-flight runs to complete naturally; process exits when they finish
         if (concurrentRuns === 0) process.exit(0);
+        // In-flight runs will exit via the finally block when they complete
       };
       process.on("SIGTERM", shutdown);
       process.on("SIGINT", shutdown);
