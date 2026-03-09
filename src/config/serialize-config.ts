@@ -24,6 +24,13 @@ export function serializeConfig(config: ResolvedConfig): string {
     }
   }
 
+  if (config.stateTimeouts && Object.keys(config.stateTimeouts).length > 0) {
+    lines.push("stateTimeouts:");
+    for (const [state, ms] of Object.entries(config.stateTimeouts)) {
+      lines.push(`  ${state}: ${ms}`);
+    }
+  }
+
   return lines.join("\n");
 }
 

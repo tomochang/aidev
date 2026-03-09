@@ -68,6 +68,39 @@ describe("serializeConfig", () => {
     expect(result).not.toContain("model");
   });
 
+  it("serializes stateTimeouts as nested map", () => {
+    const config: ResolvedConfig = {
+      maxFixAttempts: 3,
+      maxReviewRounds: 1,
+      autoMerge: false,
+      dryRun: false,
+      base: "main",
+      language: "ja",
+      skip: [],
+      stateTimeouts: { implementing: 1800000, reviewing: 600000 },
+    };
+
+    const result = serializeConfig(config);
+    expect(result).toContain("stateTimeouts:");
+    expect(result).toContain("  implementing: 1800000");
+    expect(result).toContain("  reviewing: 600000");
+  });
+
+  it("omits stateTimeouts when empty or undefined", () => {
+    const config: ResolvedConfig = {
+      maxFixAttempts: 3,
+      maxReviewRounds: 1,
+      autoMerge: false,
+      dryRun: false,
+      base: "main",
+      language: "ja",
+      skip: [],
+    };
+
+    const result = serializeConfig(config);
+    expect(result).not.toContain("stateTimeouts");
+  });
+
   it("omits skip line when skip is empty array", () => {
     const config: ResolvedConfig = {
       maxFixAttempts: 3,

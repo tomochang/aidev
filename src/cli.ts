@@ -187,14 +187,19 @@ export function createCli() {
           ctx.state = "creating_pr";
         }
         // If previous run was handed off due to timeout, resume from the timed-out state
-        if (saved.state === "manual_handoff" && saved._timedOutState) {
-          const parsed = RunStateSchema.safeParse(saved._timedOutState);
-          if (parsed.success) {
-            ctx.state = parsed.data;
+        if (saved.state === "manual_handoff") {
+          if (saved._timedOutState) {
+            const parsed = RunStateSchema.safeParse(saved._timedOutState);
+            if (parsed.success) {
+              ctx.state = parsed.data;
+            } else {
+              logger.error("Invalid _timedOutState in saved run, falling back to init", {
+                _timedOutState: saved._timedOutState,
+              });
+              ctx.state = "init";
+            }
           } else {
-            logger.error("Invalid _timedOutState in saved run, falling back to init", {
-              _timedOutState: saved._timedOutState,
-            });
+            logger.warn("Resuming from manual_handoff with no _timedOutState, restarting from init");
             ctx.state = "init";
           }
         }

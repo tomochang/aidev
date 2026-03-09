@@ -187,6 +187,7 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
       backend: merged.backend,
       model: merged.model,
       language: mergedCtx.language,
+      stateTimeouts: mergedCtx.stateTimeouts,
     };
     const configBlock = buildResolvedConfigBlock(resolvedConfig);
     const updatedBody = upsertAidevBlock(body, configBlock);

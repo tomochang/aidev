@@ -455,6 +455,32 @@ describe("withTimeout", () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
+  it("returns handler result when timeoutMs is zero (no-op)", async () => {
+    const inner: StateHandler = async (ctx) => ({
+      nextState: "reviewing" as RunState,
+      ctx,
+    });
+
+    const wrapped = withTimeout(inner, 0);
+    const ctx = makeCtx({ state: "implementing" });
+    const result = await wrapped(ctx);
+
+    expect(result.nextState).toBe("reviewing");
+  });
+
+  it("returns handler result when timeoutMs is negative (no-op)", async () => {
+    const inner: StateHandler = async (ctx) => ({
+      nextState: "reviewing" as RunState,
+      ctx,
+    });
+
+    const wrapped = withTimeout(inner, -1000);
+    const ctx = makeCtx({ state: "implementing" });
+    const result = await wrapped(ctx);
+
+    expect(result.nextState).toBe("reviewing");
+  });
+
   it("returns handler result when timeoutMs is Infinity", async () => {
     const inner: StateHandler = async (ctx) => ({
       nextState: "reviewing" as RunState,

@@ -31,7 +31,7 @@ export function withTimeout(
   timeoutMs: number,
   logger?: Logger,
 ): StateHandler {
-  if (!Number.isFinite(timeoutMs)) return handler;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return handler;
 
   return (ctx) => {
     return new Promise<{ nextState: RunState; ctx: RunContext }>((resolve, reject) => {
