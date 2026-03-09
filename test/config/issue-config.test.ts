@@ -256,4 +256,57 @@ describe("parseIssueConfig", () => {
       implementing: 5000,
     });
   });
+
+  it("rejects stateTimeouts above MAX_STATE_TIMEOUT_MS (1 hour)", () => {
+    const body = [
+      "```aidev",
+      "stateTimeouts:",
+      "  implementing: 7200000",
+      "  reviewing: 600000",
+      "```",
+    ].join("\n");
+    const result = parseIssueConfig(body);
+    // implementing: 7200000 (2h) exceeds 3600000 (1h) max → rejected
+    // reviewing: 600000 (10min) is within range → accepted
+    expect(result.stateTimeouts).toEqual({
+      reviewing: 600000,
+    });
+  });
+
+  it("accepts stateTimeouts of exactly MAX_STATE_TIMEOUT_MS", () => {
+    const body = [
+      "```aidev",
+      "stateTimeouts:",
+      "  implementing: 3600000",
+      "```",
+    ].join("\n");
+    const result = parseIssueConfig(body);
+    expect(result.stateTimeouts).toEqual({
+      implementing: 3600000,
+    });
+  });
+
+  it("rejects base field with path traversal", () => {
+    const body = "```aidev\nbase: ../../etc/passwd\n```";
+    const result = parseIssueConfig(body);
+    expect(result.base).toBeUndefined();
+  });
+
+  it("rejects base field with special characters", () => {
+    const body = "```aidev\nbase: main; rm -rf /\n```";
+    const result = parseIssueConfig(body);
+    expect(result.base).toBeUndefined();
+  });
+
+  it("accepts valid branch names in base field", () => {
+    const body = "```aidev\nbase: release/1.3\n```";
+    const result = parseIssueConfig(body);
+    expect(result.base).toBe("release/1.3");
+  });
+
+  it("accepts tag-style base values", () => {
+    const body = "```aidev\nbase: v1.2.0\n```";
+    const result = parseIssueConfig(body);
+    expect(result.base).toBe("v1.2.0");
+  });
 });

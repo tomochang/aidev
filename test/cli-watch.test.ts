@@ -356,8 +356,12 @@ describe("watch command", () => {
 
     expect(mockRunWorkflow).toHaveBeenCalledTimes(2);
 
-    const ctx1 = mockRunWorkflow.mock.calls[0][0];
-    const ctx2 = mockRunWorkflow.mock.calls[1][0];
+    // Sort by issue number since fire-and-forget ordering is non-deterministic
+    const calls = mockRunWorkflow.mock.calls
+      .map((c: any) => c[0])
+      .sort((a: any, b: any) => a.issueNumber - b.issueNumber);
+    const ctx1 = calls[0];
+    const ctx2 = calls[1];
 
     expect(ctx1.runId).not.toBe(ctx2.runId);
     expect(ctx1.issueNumber).toBe(10);

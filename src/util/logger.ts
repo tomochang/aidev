@@ -79,12 +79,10 @@ export function createLogger(opts: CreateLoggerOptions = {}): Logger {
       openStream(path);
     },
     flush(): Promise<void> {
-      return new Promise((resolve, reject) => {
-        if (stream && !stream.destroyed) {
-          stream.write("", (err) => {
-            if (err) reject(err);
-            else resolve();
-          });
+      return new Promise((resolve) => {
+        if (stream && !stream.destroyed && !stream.writableEnded) {
+          stream.once("finish", resolve);
+          stream.end();
         } else {
           resolve();
         }

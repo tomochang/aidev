@@ -27,6 +27,12 @@ const terminalStates: ReadonlySet<RunState> = new Set(TERMINAL_STATES);
 export const MIN_STATE_TIMEOUT_MS = 5_000;
 
 /**
+ * Maximum allowed state timeout (1 hour). Values above this are clamped
+ * to prevent unbounded resource holds from malicious issue body config.
+ */
+export const MAX_STATE_TIMEOUT_MS = 60 * 60 * 1000;
+
+/**
  * Wrap a StateHandler with a wall-clock timeout and cooperative cancellation.
  *
  * When the timeout fires:

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SkippableStateSchema, LanguageSchema, RunStateSchema } from "../types.js";
 import type { SkippableState, Language, RunState } from "../types.js";
-import { MIN_STATE_TIMEOUT_MS } from "../workflow/engine.js";
+import { MIN_STATE_TIMEOUT_MS, MAX_STATE_TIMEOUT_MS } from "../workflow/engine.js";
 
 export type { SkippableState, Language } from "../types.js";
 export { LanguageSchema } from "../types.js";
@@ -154,7 +154,10 @@ export function parseConfigBlock(block: string): Partial<IssueConfig> {
   }
 
   if (typeof raw.base === "string" && raw.base.length > 0) {
-    obj.base = raw.base;
+    // Only allow branch-name-safe characters; reject path traversal
+    if (/^[a-zA-Z0-9._\-/]+$/.test(raw.base) && !raw.base.includes("..")) {
+      obj.base = raw.base;
+    }
   }
 
   if (typeof raw.backend === "string" && raw.backend.length > 0) {
@@ -182,7 +185,7 @@ export function parseConfigBlock(block: string): Partial<IssueConfig> {
     for (const [key, val] of Object.entries(map)) {
       if (!RunStateSchema.safeParse(key).success) continue;
       const n = Number(val);
-      if (Number.isFinite(n) && n >= MIN_STATE_TIMEOUT_MS) {
+      if (Number.isFinite(n) && n >= MIN_STATE_TIMEOUT_MS && n <= MAX_STATE_TIMEOUT_MS) {
         timeouts[key as RunState] = n;
       }
     }

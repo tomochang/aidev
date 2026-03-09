@@ -410,8 +410,15 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
     const pollInterval = 15 * 1000; // 15 seconds
     const gracePeriod = 30 * 1000; // 30 seconds for CI check runs to register
     const start = Date.now();
+    const signal = ctx._abortSignal;
 
     while (Date.now() - start < maxWait) {
+      if (signal?.aborted) {
+        logger.info("watching_ci aborted by timeout signal");
+        return transition(ctx, "manual_handoff", {
+          handoffReason: "watching_ci aborted by timeout",
+        });
+      }
       const status = await github.getCiStatus(ctx.branch);
       if (status === "passing") {
         logger.info("CI passed");
@@ -434,7 +441,11 @@ export function createStateHandlers(deps: Deps): StateHandlerMap {
         if (!shouldAutoMerge(ctx)) return transition(ctx, "done");
         return transition(ctx, "merging");
       }
-      await new Promise((r) => setTimeout(r, pollInterval));
+      // Abort-aware sleep: wake up early if timeout signal fires
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, pollInterval);
+        signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
     }
 
     logger.error("CI timed out");

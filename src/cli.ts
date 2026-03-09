@@ -17,7 +17,7 @@ import { createSlackNotifier, formatSlackMessage } from "./adapters/slack.js";
 import { loadRepoConfig } from "./config/repo-config.js";
 import { writeAidevYml } from "./config/init.js";
 import { runPreflightChecks } from "./preflight.js";
-import { RunStateSchema, TERMINAL_STATES, isTerminalState, type RunContext, type TerminalState } from "./types.js";
+import { RunStateSchema, TERMINAL_STATES, isTerminalState, type RunContext, type RunState, type TerminalState } from "./types.js";
 import { formatElapsed, formatProgressEvent } from "./agents/shared.js";
 import { formatErrorDetails } from "./util/error.js";
 
@@ -205,13 +205,21 @@ export function createCli() {
           // Clear handoff metadata to avoid stale data in the resumed run
           delete ctx._timedOutState;
           delete ctx.handoffReason;
-          // Clear stateTimeouts to prevent re-triggering the same timeout.
-          // User can re-specify via issue body if desired.
-          if (ctx.stateTimeouts) {
-            logger.info("Clearing stateTimeouts for resume to prevent repeated handoff", {
-              previousTimeouts: ctx.stateTimeouts,
-            });
-            delete ctx.stateTimeouts;
+          // Clear only the timeout for the state that timed out to prevent
+          // re-triggering. Other state timeouts remain in effect.
+          if (ctx.stateTimeouts && saved._timedOutState) {
+            const timedOutKey = saved._timedOutState as RunState;
+            if (ctx.stateTimeouts[timedOutKey] != null) {
+              logger.info("Clearing timeout for timed-out state", {
+                state: timedOutKey,
+                removedTimeout: ctx.stateTimeouts[timedOutKey],
+                remainingTimeouts: Object.keys(ctx.stateTimeouts).filter(k => k !== timedOutKey),
+              });
+              delete ctx.stateTimeouts[timedOutKey];
+              if (Object.keys(ctx.stateTimeouts).length === 0) {
+                delete ctx.stateTimeouts;
+              }
+            }
           }
         }
       } else {
@@ -477,8 +485,8 @@ export function createCli() {
           logger.info("Worktree preserved for resume", { path: worktreePath });
         }
       }
+      await logger.flush();
       if (exitCode !== 0) {
-        await logger.flush();
         process.exit(exitCode);
       }
     });
@@ -531,19 +539,33 @@ export function createCli() {
       logger.info("Watching for issues", { label: opts.label, repo });
 
       const authenticatedUser = await github.getAuthenticatedUser();
-      const processedIssues = new Set<number>();
+
+      // Track issue status: allow retrying failed issues on next label scan
+      const processedIssues = new Map<number, "running" | "done" | "failed">();
+      let concurrentRuns = 0;
+      const MAX_CONCURRENT_RUNS = 2;
 
       const poll = async () => {
         const issues = await github.listIssuesByLabel(opts.label);
         for (const issue of issues) {
-          if (processedIssues.has(issue.number)) continue;
-          processedIssues.add(issue.number);
+          const status = processedIssues.get(issue.number);
+          if (status === "running" || status === "done") continue;
 
           if (issue.author !== authenticatedUser) {
             logger.warn("Skipping foreign issue", {
               number: issue.number,
               author: issue.author,
               authenticatedUser,
+            });
+            processedIssues.set(issue.number, "done");
+            continue;
+          }
+
+          if (concurrentRuns >= MAX_CONCURRENT_RUNS) {
+            logger.info("Concurrency limit reached, deferring issue", {
+              number: issue.number,
+              concurrentRuns,
+              max: MAX_CONCURRENT_RUNS,
             });
             continue;
           }
@@ -555,6 +577,8 @@ export function createCli() {
 
           const runId = `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
           const worktreePath = join(cwd, ".worktrees", `issue-${issue.number}`);
+          processedIssues.set(issue.number, "running");
+          concurrentRuns++;
 
           const runIssue = async () => {
             const runLogDir = join(baseDir, runId);
@@ -619,7 +643,12 @@ export function createCli() {
                   resumeCommand: `aidev run --issue ${issue.number} --repo ${repo} --cwd ${cwd} --resume --yes`,
                 });
               }
+              processedIssues.set(issue.number, "done");
+            } catch (err) {
+              processedIssues.set(issue.number, "failed");
+              throw err;
             } finally {
+              concurrentRuns--;
               if (!preserveWorktree) {
                 await git.removeWorktree(worktreePath, cwd).catch((err) =>
                   runLogger.error("Worktree cleanup failed", {
@@ -641,7 +670,23 @@ export function createCli() {
       };
 
       await poll();
-      setInterval(poll, opts.interval * 1000);
+      const intervalId = setInterval(async () => {
+        try {
+          await poll();
+        } catch (err) {
+          logger.error("Poll cycle failed", { ...formatErrorDetails(err) });
+        }
+      }, opts.interval * 1000);
+
+      // Graceful shutdown on SIGTERM/SIGINT
+      const shutdown = () => {
+        clearInterval(intervalId);
+        logger.info("Shutting down watch mode", { inFlightRuns: concurrentRuns });
+        // Allow in-flight runs to complete naturally; process exits when they finish
+        if (concurrentRuns === 0) process.exit(0);
+      };
+      process.on("SIGTERM", shutdown);
+      process.on("SIGINT", shutdown);
     });
 
   program
